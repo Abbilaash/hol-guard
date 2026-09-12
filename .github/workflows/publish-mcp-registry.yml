@@ -165,12 +165,14 @@ jobs:
         if: >-
           !contains(steps.release.outputs.version, 'a') &&
           !contains(steps.release.outputs.version, 'b') &&
-          !contains(steps.release.outputs.version, 'rc')
+          !contains(steps.release.outputs.version, 'rc') &&
+          !contains(steps.release.outputs.version, 'dev')
         run: ./mcp-publisher login github-oidc
 
       - name: Publish to MCP registry
         if: >-
           !contains(steps.release.outputs.version, 'a') &&
           !contains(steps.release.outputs.version, 'b') &&
-          !contains(steps.release.outputs.version, 'rc')
+          !contains(steps.release.outputs.version, 'rc') &&
+          !contains(steps.release.outputs.version, 'dev')
         run: ./mcp-publisher publish
