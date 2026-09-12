@@ -15,6 +15,7 @@ from .store_review_event_outbox_binding import (
     refresh_same_subject_binding,
 )
 from .store_review_event_outbox_writes import requeue_pending_request_events
+from .store_review_retry_identity import repair_rejected_review_correlation
 
 
 def _retry_at(now: str, attempt_count: int) -> str:
@@ -27,6 +28,18 @@ def _retry_at(now: str, attempt_count: int) -> str:
 
 
 class StoreReviewEventOutboxMixin:
+    def repair_rejected_review_correlation(
+        self, *, event_sequence: int, binding: Mapping[str, str], changed_at: str
+    ) -> int:
+        with self._connect() as connection:
+            return repair_rejected_review_correlation(
+                connection,
+                source=self._guard_source,
+                event_sequence=event_sequence,
+                binding=binding,
+                changed_at=changed_at,
+            )
+
     def requeue_pending_review_events(
         self, *, changed_at: str, require_binding: bool = False, snapshot_repair_sequences: dict[str, int] | None = None
     ) -> int:
@@ -45,9 +58,17 @@ class StoreReviewEventOutboxMixin:
         changed_at: str,
         marker_key: str,
         marker_payload: Mapping[str, object],
+        require_binding: bool = False,
+        only_retry_identity_drift: bool = False,
     ) -> int:
         with self._connect() as connection:
-            count = requeue_pending_request_events(connection, source=self._guard_source, changed_at=changed_at)
+            count = requeue_pending_request_events(
+                connection,
+                source=self._guard_source,
+                changed_at=changed_at,
+                require_binding=require_binding,
+                only_retry_identity_drift=only_retry_identity_drift,
+            )
             connection.execute(
                 """
                 insert into sync_state (state_key, payload_json, updated_at)

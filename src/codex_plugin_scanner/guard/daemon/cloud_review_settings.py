@@ -50,7 +50,7 @@ def cloud_review_settings_status(store: GuardStore) -> dict[str, object]:
         "held_events": store.count_recoverable_unbound_review_events(),
         "isolated_events": outbox.get("quarantined_depth", 0),
         "activation_error": recovery.get("error"),
-        "last_synced_at": sync.get("last_success_at"),
+        "last_synced_at": sync.get("last_delivery_at"),
         "delivery_state": sync.get("state", "idle"),
         "approval_gate": public_config(store.guard_home).to_dict(),
     }
