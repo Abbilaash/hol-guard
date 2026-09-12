@@ -1,4 +1,4 @@
-name: Publish to MCP Registry
+name: Publish MCP Registry Metadata
 
 on:
   workflow_run:
@@ -6,23 +6,26 @@ on:
     types: [completed]
     branches: [main, release/3.0]
 
-# New jobs start without a token grant; writers declare only their own scopes.
-permissions: {}
+permissions:
+  contents: read
 
 concurrency:
-  group: hol-guard-mcp-registry-${{ github.event.workflow_run.head_branch }}
+  group: publish-mcp-registry-${{ github.event.workflow_run.head_branch }}
   cancel-in-progress: false
+
+env:
+  MCP_PUBLISHER_VERSION: v1.7.0
+  MCP_PUBLISHER_SHA256: 2d58738452bf442c3d20b1f9fcb48ec377df552dddf4b70a3f56b856a1350299
 
 jobs:
   verify:
     if: >-
-      vars.RELEASE_PUBLISHING_ENABLED == 'true' &&
       github.event.workflow_run.conclusion == 'success' &&
       contains(fromJSON('["push", "workflow_dispatch"]'), github.event.workflow_run.event) &&
       github.event.workflow_run.run_attempt == 1 &&
       github.event.workflow_run.head_repository.full_name == github.repository &&
       contains(fromJSON('["main", "release/3.0"]'), github.event.workflow_run.head_branch) &&
-      !contains(github.event.workflow_run.head_commit.message || '', '[skip release publish]')
+      !contains(github.event.workflow_run.head_commit.message, '[skip release publish]')
     permissions:
       actions: read
       contents: read
@@ -30,137 +33,144 @@ jobs:
 
   publish:
     needs: verify
-    permissions:
-      contents: read
-      id-token: write
-    name: Publish verified MCP metadata
     if: >-
       needs.verify.outputs.sha != '' &&
       needs.verify.outputs.branch != '' &&
-      vars.RELEASE_PUBLISHING_ENABLED == 'true' &&
       github.event.workflow_run.conclusion == 'success' &&
       contains(fromJSON('["push", "workflow_dispatch"]'), github.event.workflow_run.event) &&
       github.event.workflow_run.run_attempt == 1 &&
       github.event.workflow_run.head_repository.full_name == github.repository &&
       contains(fromJSON('["main", "release/3.0"]'), github.event.workflow_run.head_branch) &&
-      !contains(github.event.workflow_run.head_commit.message || '', '[skip release publish]')
+      !contains(github.event.workflow_run.head_commit.message, '[skip release publish]')
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    permissions:
+      contents: read
+      id-token: write
     steps:
-      - name: Check out verified immutable release source
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.1.1
         with:
-          fetch-depth: 0
           ref: ${{ needs.verify.outputs.sha }}
+          fetch-depth: 0
           persist-credentials: false
 
-      - name: Wait for the canonical release tag
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12'
+
+      - name: Resolve exact published version
         id: release
         env:
           SOURCE_SHA: ${{ needs.verify.outputs.sha }}
           SOURCE_REF: refs/heads/${{ needs.verify.outputs.branch }}
         run: |
           set -euo pipefail
-          tag=""
-          for attempt in $(seq 1 180); do
-            git fetch --force --tags origin
-            if [[ "$SOURCE_REF" == "refs/heads/release/3.0" ]]; then
-              tag=$(git tag --points-at "$SOURCE_SHA" --list 'alpha/v3.0.1a*' | sort -V | tail -n 1)
-            elif [[ "$SOURCE_REF" == "refs/heads/main" ]]; then
-              tag=$(git tag --points-at "$SOURCE_SHA" --list 'v*' | sort -V | tail -n 1)
+          version=""
+          for attempt in $(seq 1 12); do
+            # Checkout fetched all tags without retaining repository credentials.
+            tags="$(git tag --points-at "$SOURCE_SHA" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(a[0-9]+)?$' | sort -V || true)"
+            alpha_tags="$(printf '%s\n' "$tags" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+a[0-9]+$' || true)"
+            stable_tags="$(printf '%s\n' "$tags" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true)"
+            if [[ "$SOURCE_REF" == "refs/heads/main" ]]; then
+              tag="$(printf '%s\n' "$stable_tags" | head -n 1)"
+            elif [[ "$SOURCE_REF" == refs/heads/release/* ]]; then
+              tag="$(printf '%s\n' "$alpha_tags" | head -n 1)"
+              if [[ -z "$tag" ]]; then
+                tag="$(printf '%s\n' "$stable_tags" | head -n 1)"
+              fi
             else
-              echo "Unsupported release ref: $SOURCE_REF" >&2
-              exit 1
+              tag="$(printf '%s\n' "$tags" | head -n 1)"
             fi
             if [[ -n "$tag" ]]; then
+              version="${tag#v}"
               break
             fi
-            if [[ "$attempt" == "180" ]]; then
-              echo "No canonical release tag appeared for $SOURCE_SHA" >&2
-              exit 1
-            fi
-            sleep 10
+            echo "Waiting for exact published tag on ${SOURCE_SHA} (${attempt}/12)" >&2
+            sleep 5
           done
-
-          if [[ "$tag" == alpha/v* ]]; then
-            version="${tag#alpha/v}"
-          else
-            version="${tag#v}"
-          fi
-          if [[ -z "$version" || "$version" == "$tag" ]]; then
-            echo "Could not derive package version from tag: $tag" >&2
+          if [[ -z "$version" ]]; then
+            echo "No published release tag points at ${SOURCE_SHA}; refusing to publish MCP metadata." >&2
             exit 1
           fi
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          channel="stable"
+          if [[ "$version" == *a* ]]; then channel="alpha"; fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Resolved MCP Registry version $version from $tag"
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
 
-      - name: Wait for the exact PyPI package
+      - name: Verify exact PyPI release
         env:
           VERSION: ${{ steps.release.outputs.version }}
         run: |
-          set -euo pipefail
-          for attempt in $(seq 1 60); do
-            if curl --fail --silent --show-error \
-              --proto '=https' --tlsv1.2 \
-              "https://pypi.org/pypi/hol-guard/${VERSION}/json" \
-              --output /tmp/hol-guard-pypi.json; then
-              jq -e --arg version "$VERSION" '.info.version == $version' /tmp/hol-guard-pypi.json >/dev/null
-              exit 0
-            fi
-            if [[ "$attempt" == "60" ]]; then
-              echo "hol-guard ${VERSION} did not become available on PyPI" >&2
-              exit 1
-            fi
-            sleep 10
-          done
+          python - <<'PY'
+          import json
+          import os
+          import time
+          import urllib.error
+          import urllib.request
 
-      - name: Stamp and verify Registry manifest
+          version = os.environ["VERSION"]
+          url = f"https://pypi.org/pypi/hol-guard/{version}/json"
+          for attempt in range(1, 13):
+              try:
+                  with urllib.request.urlopen(url, timeout=30) as response:
+                      payload = json.load(response)
+                  assert payload["info"]["version"] == version
+                  if not payload.get("urls"):
+                      raise RuntimeError("PyPI metadata has no files yet")
+                  print(f"Confirmed hol-guard {version} is available on PyPI")
+                  break
+              except (urllib.error.HTTPError, urllib.error.URLError, AssertionError, RuntimeError) as exc:
+                  if attempt == 12:
+                      raise SystemExit(f"Exact PyPI version {version} is not available: {exc}")
+                  time.sleep(5)
+          PY
+
+      - name: Write registry server metadata
         env:
           VERSION: ${{ steps.release.outputs.version }}
         run: |
-          set -euo pipefail
-          grep -Fq '<!-- mcp-name: io.github.hashgraph-online/hol-guard -->' README.md
-          jq --arg version "$VERSION" \
-            '.version = $version | .packages[0].version = $version' \
-            server.json > server.json.tmp
-          mv server.json.tmp server.json
-          jq -e '
-            (.description | type) == "string" and
-            (.description | length) >= 1 and
-            (.description | length) <= 100
-          ' server.json >/dev/null || {
-            echo "server.json description must be a non-empty string no longer than 100 characters" >&2
-            exit 1
-          }
-          jq -e --arg version "$VERSION" \
-            '.name == "io.github.hashgraph-online/hol-guard" and
-             .repository.url == "https://github.com/hashgraph-online/hol-guard" and
-             .packages[0].registryType == "pypi" and
-             .packages[0].identifier == "hol-guard" and
-             .packages[0].version == $version and
-             .version == $version and
-             .packages[0].transport.type == "stdio" and
-             [.packages[0].packageArguments[].value] == ["mcp", "serve", "--stdio"]' \
-            server.json >/dev/null
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          data = json.loads(Path("server.json").read_text())
+          data["version"] = os.environ["VERSION"]
+          for package in data["packages"]:
+              package["version"] = os.environ["VERSION"]
+          Path("server.json").write_text(json.dumps(data, indent=2) + "\n")
+          PY
 
-      - name: Install pinned MCP Registry publisher
-        env:
-          MCP_PUBLISHER_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
-          MCP_PUBLISHER_VERSION: v1.8.1
+      - name: Cache verified MCP publisher
+        id: mcp-publisher-cache
+        uses: actions/cache@6682281eae519c7b35eeb539bba3a549a8ce6e88 # v5.0.3
+        with:
+          path: ${{ runner.temp }}/mcp-publisher-cache
+          key: mcp-publisher-${{ runner.os }}-${{ runner.arch }}-${{ env.MCP_PUBLISHER_VERSION }}-${{ env.MCP_PUBLISHER_SHA256 }}
+
+      - name: Install MCP publisher
+        if: steps.mcp-publisher-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
-          archive=mcp-publisher_linux_amd64.tar.gz
-          curl --fail --location --proto '=https' --tlsv1.2 \
-            "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/${archive}" \
-            --output "$archive"
-          printf '%s  %s\n' "$MCP_PUBLISHER_SHA256" "$archive" | sha256sum --check --strict
-          tar -xzf "$archive" mcp-publisher
-          chmod 0755 mcp-publisher
-          ./mcp-publisher --help >/dev/null
+          mkdir -p "${RUNNER_TEMP}/mcp-publisher-cache"
+          asset="mcp-publisher_Linux_x86_64.tar.gz"
+          curl --fail --silent --show-error --location --retry 3 \
+            "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/${asset}" \
+            -o "${RUNNER_TEMP}/mcp-publisher-cache/${asset}"
+          echo "${MCP_PUBLISHER_SHA256}  ${RUNNER_TEMP}/mcp-publisher-cache/${asset}" | sha256sum --check --strict
+          tar xzf "${RUNNER_TEMP}/mcp-publisher-cache/${asset}" -C "${RUNNER_TEMP}/mcp-publisher-cache" mcp-publisher
 
-      - name: Authenticate with GitHub OIDC
-        run: ./mcp-publisher login github-oidc
+      - name: Verify cached MCP publisher
+        run: |
+          set -euo pipefail
+          asset="mcp-publisher_Linux_x86_64.tar.gz"
+          echo "${MCP_PUBLISHER_SHA256}  ${RUNNER_TEMP}/mcp-publisher-cache/${asset}" | sha256sum --check --strict
+          tar xzf "${RUNNER_TEMP}/mcp-publisher-cache/${asset}" -C "${RUNNER_TEMP}" mcp-publisher
 
-      - name: Publish immutable MCP server metadata
-        run: ./mcp-publisher publish
+      - name: Publish to MCP registry
+        if: >-
+          !contains(steps.release.outputs.version, 'a') &&
+          !contains(steps.release.outputs.version, 'b') &&
+          !contains(steps.release.outputs.version, 'rc')
+        run: |
+          "${RUNNER_TEMP}/mcp-publisher" login github-oidc
+          "${RUNNER_TEMP}/mcp-publisher" publish
