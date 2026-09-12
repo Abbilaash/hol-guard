@@ -150,7 +150,7 @@ export function CloudReviewSettings() {
             <dd className="mt-1 font-medium text-brand-dark">{status.enabled ? "Enabled" : "Confirmation needed"}</dd>
           </div>
           <div className="min-w-0">
-            <dt className="text-xs text-slate-600">Last request delivery</dt>
+            <dt className="text-xs text-slate-600">Last activity delivered</dt>
             <dd className="mt-1 font-medium text-brand-dark">
               {deliveredAt ? <time dateTime={deliveredAt.toISOString()}>{deliveredAt.toLocaleString(undefined, {
                 month: "short", day: "numeric", hour: "numeric", minute: "2-digit",

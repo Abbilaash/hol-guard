@@ -2653,7 +2653,7 @@ function CloudReviewSettings() {
         /* @__PURE__ */ jsxRuntimeExports.jsx("dd", { className: "mt-1 font-medium text-brand-dark", children: status.enabled ? "Enabled" : "Confirmation needed" })
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "min-w-0", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("dt", { className: "text-xs text-slate-600", children: "Last request delivery" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("dt", { className: "text-xs text-slate-600", children: "Last activity delivered" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("dd", { className: "mt-1 font-medium text-brand-dark", children: deliveredAt ? /* @__PURE__ */ jsxRuntimeExports.jsx("time", { dateTime: deliveredAt.toISOString(), children: deliveredAt.toLocaleString(void 0, {
           month: "short",
           day: "numeric",

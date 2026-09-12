@@ -87,7 +87,7 @@ def test_rejected_retry_refresh_is_recovered_only_with_canonical_server_identity
 
 
 @pytest.mark.parametrize("status", ["accepted", "duplicate", "stale"])
-def test_last_request_delivery_does_not_advance_for_heartbeat_or_discarded_events(
+def test_last_activity_delivery_does_not_advance_for_heartbeat_or_discarded_events(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, status: str
 ) -> None:
     store = connected_exact_review_store(tmp_path)
@@ -117,6 +117,8 @@ def test_last_request_delivery_does_not_advance_for_heartbeat_or_discarded_event
     expected = now if status == "accepted" else old
     state = store.get_sync_payload("guard_cloud_review_sync_state")
     assert isinstance(state, dict) and state["last_delivery_at"] == expected
+    if status == "accepted":
+        assert state["last_delivery_binding"] == {key: value for key, value in binding.items() if key != "oauth_source"}
     monkeypatch.setattr(cloud_review_sync, "_now", lambda: "2026-08-24T12:02:00+00:00")
     _ = cloud_review_sync.sync_cloud_review_events_once(store, auth)
     state = store.get_sync_payload("guard_cloud_review_sync_state")

@@ -166,7 +166,7 @@ def _complete_sync_state(
     if accepted > 0 or outbox_status["depth"] == 0:
         state["last_success_at"] = completed_at
     if delivered > 0:
-        state["last_delivery_at"] = completed_at
+        state.update({"last_delivery_at": completed_at, "last_delivery_binding": delivery_binding})
     state.update(
         {
             "state": "error" if pending_error and outbox_status["depth"] else "idle",
