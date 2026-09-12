@@ -58,7 +58,9 @@ class GitHubFixture:
 
     def verify(self, event_name: str = "workflow_run") -> tuple[str, str]:
         """Exercise the same verifier used by the reusable Actions gate."""
-        return verifier.verify_release_source(self.event, event_name=event_name, repository=REPOSITORY, fetch_json=self.fetch)
+        return verifier.verify_release_source(
+            self.event, event_name=event_name, repository=REPOSITORY, fetch_json=self.fetch
+        )
 
 
 @pytest.mark.parametrize("branch", ["main", "release/3.0"])

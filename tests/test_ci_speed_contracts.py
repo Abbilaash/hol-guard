@@ -67,7 +67,9 @@ def test_downstream_publication_requires_successful_same_repository_release(file
         assert "validate" in job["needs"]
 
 
-@pytest.mark.parametrize("script", ["scripts/build_native_hol_guard_wheel.py", "scripts/ci/native_approval_contract_gate.py"])
+@pytest.mark.parametrize(
+    "script", ["scripts/build_native_hol_guard_wheel.py", "scripts/ci/native_approval_contract_gate.py"]
+)
 def test_native_wheel_helpers_run_without_site_packages(script: str) -> None:
     result = subprocess.run(
         [sys.executable, "-I", "-S", str(ROOT / script), "--help"],
