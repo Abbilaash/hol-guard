@@ -45,7 +45,7 @@ jobs:
       contains(fromJSON('["main", "release/3.0"]'), github.event.workflow_run.head_branch) &&
       !contains(github.event.workflow_run.head_commit.message || '', '[skip release publish]')
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - name: Check out verified immutable release source
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
@@ -55,6 +55,7 @@ jobs:
           persist-credentials: false
 
       - name: Wait for the canonical release tag
+        timeout-minutes: 35
         id: release
         env:
           SOURCE_SHA: ${{ needs.verify.outputs.sha }}
@@ -96,6 +97,7 @@ jobs:
           echo "Resolved MCP Registry version $version from $tag"
 
       - name: Wait for the exact PyPI package
+        timeout-minutes: 15
         env:
           VERSION: ${{ steps.release.outputs.version }}
         run: |
@@ -160,7 +162,15 @@ jobs:
           ./mcp-publisher --help >/dev/null
 
       - name: Authenticate with GitHub OIDC
+        if: >-
+          !contains(steps.release.outputs.version, 'a') &&
+          !contains(steps.release.outputs.version, 'b') &&
+          !contains(steps.release.outputs.version, 'rc')
         run: ./mcp-publisher login github-oidc
 
-      - name: Publish immutable MCP server metadata
+      - name: Publish to MCP registry
+        if: >-
+          !contains(steps.release.outputs.version, 'a') &&
+          !contains(steps.release.outputs.version, 'b') &&
+          !contains(steps.release.outputs.version, 'rc')
         run: ./mcp-publisher publish
