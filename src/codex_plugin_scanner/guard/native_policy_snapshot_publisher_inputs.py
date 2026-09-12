@@ -23,6 +23,7 @@ class NativePolicySnapshotPublisherInputs:
     _condition: Condition  # pyright: ignore[reportUninitializedInstanceVariable]
     _workspace_paths: set[Path]  # pyright: ignore[reportUninitializedInstanceVariable]
     _published_policy_fingerprint: tuple[str, str] | None  # pyright: ignore[reportUninitializedInstanceVariable]
+    _observed_policy_fingerprint: tuple[str, str] | None  # pyright: ignore[reportUninitializedInstanceVariable]
 
     def _current_input_fingerprint(
         self,
@@ -227,8 +228,16 @@ class NativePolicySnapshotPublisherInputs:
                 cast(str, effective_policy["mode"]),
             )
         except (OSError, NativePolicySnapshotError, TypeError, ValueError, RuntimeError):
-            return True
-        return self._published_policy_fingerprint != current_fingerprint
+            current_fingerprint = ("unavailable", "")
+        # Observation is independent of acknowledgment: unchanged inputs must
+        # not reset a failed publication's retry backoff on every database write.
+        previous_fingerprint = (
+            self._observed_policy_fingerprint
+            if self._observed_policy_fingerprint is not None
+            else self._published_policy_fingerprint
+        )
+        self._observed_policy_fingerprint = current_fingerprint
+        return previous_fingerprint != current_fingerprint
 
     @staticmethod
     def _resolved_workspace(workspace: Path) -> Path:
