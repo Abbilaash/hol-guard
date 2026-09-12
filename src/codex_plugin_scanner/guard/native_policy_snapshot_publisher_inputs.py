@@ -21,6 +21,7 @@ class NativePolicySnapshotPublisherInputs:
 
     guard_home: Path  # pyright: ignore[reportUninitializedInstanceVariable]
     _condition: Condition  # pyright: ignore[reportUninitializedInstanceVariable]
+    _acked: bool  # pyright: ignore[reportUninitializedInstanceVariable]
     _workspace_paths: set[Path]  # pyright: ignore[reportUninitializedInstanceVariable]
     _published_policy_fingerprint: tuple[str, str] | None  # pyright: ignore[reportUninitializedInstanceVariable]
     _observed_policy_fingerprint: tuple[str, str] | None  # pyright: ignore[reportUninitializedInstanceVariable]
@@ -201,6 +202,7 @@ class NativePolicySnapshotPublisherInputs:
     def _policy_input_changed(self, changed_paths: set[str] | None = None) -> bool:
         """Compare effective policy in the publisher thread, never in hooks."""
 
+        force_republish = False
         if changed_paths:
             config_path = str(self.guard_home / "config.toml")
             database_paths = {
@@ -212,7 +214,11 @@ class NativePolicySnapshotPublisherInputs:
                 # are all effective-input boundaries. Republish before the
                 # resident is used even when this Python projection cannot
                 # yet express a workspace-specific native policy.
-                return True
+                force_republish = True
+                # Revoke the old snapshot before potentially slow compilation.
+                with self._condition:
+                    self._acked = False
+                    self._condition.notify_all()
         try:
             effective_policy = self._compiled_effective_policy()
             # ``_compiled_effective_policy`` carries the raw mode beside the
@@ -237,7 +243,7 @@ class NativePolicySnapshotPublisherInputs:
             else self._published_policy_fingerprint
         )
         self._observed_policy_fingerprint = current_fingerprint
-        return previous_fingerprint != current_fingerprint
+        return force_republish or previous_fingerprint != current_fingerprint
 
     @staticmethod
     def _resolved_workspace(workspace: Path) -> Path:

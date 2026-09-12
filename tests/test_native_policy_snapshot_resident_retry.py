@@ -214,6 +214,62 @@ def test_stable_database_heartbeat_does_not_reset_failed_retry_backoff(
         publisher.close()
 
 
+def test_non_database_policy_change_records_observation_before_failed_retry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    publisher = NativePolicySnapshotPublisher(
+        store=GuardStore(tmp_path / "guard-home"),
+        client_request=lambda **_kwargs: b"unused",
+        poll_interval_seconds=0.05,
+    )
+    enforce_policy = {"mode": "enforce", "blocked_capabilities": ["network"]}
+    observe_policy = {"mode": "observe", "blocked_capabilities": ["network"]}
+    database_change = {str(publisher.guard_home / "guard.db-wal")}
+    external_change = {str(publisher.guard_home / "managed-policy-cache.json")}
+    policies = iter((enforce_policy, observe_policy, observe_policy))
+    monkeypatch.setattr(publisher, "_compiled_effective_policy", lambda: next(policies))
+    try:
+        assert publisher._policy_input_changed(database_change)
+        assert publisher._policy_input_changed(external_change)
+        publisher._record_error("native_policy_snapshot_resident_changed")
+        retry_deadline = publisher._retry_not_before_monotonic
+
+        assert not publisher._policy_input_changed(database_change)
+        assert publisher._retry_not_before_monotonic == retry_deadline
+        assert publisher._failure_count == 1
+    finally:
+        publisher.close()
+
+
+def test_non_database_policy_change_revokes_readiness_before_compilation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = _DeterministicClock()
+    publisher = NativePolicySnapshotPublisher(
+        store=GuardStore(tmp_path / "guard-home"),
+        client_request=lambda **_kwargs: b"unused",
+        wall_clock=clock.wall_time,
+        monotonic_clock=clock.monotonic_time,
+    )
+    publisher._snapshot = {"expires_at_ms": int(clock.wall * 1_000) + 60_000, "generation": 1}
+    publisher._acked = True
+
+    def compile_policy() -> dict[str, object]:
+        assert not publisher.is_ready()
+        assert publisher.current_snapshot_binding() is None
+        return {"mode": "enforce", "blocked_capabilities": ["network"]}
+
+    monkeypatch.setattr(publisher, "_compiled_effective_policy", compile_policy)
+    try:
+        assert publisher.is_ready()
+        assert publisher._policy_input_changed({str(tmp_path / ".hol-guard.toml")})
+        assert not publisher.is_ready()
+    finally:
+        publisher.close()
+
+
 def test_invalid_policy_observation_then_valid_recovery_rearms_publication(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
