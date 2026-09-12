@@ -50,6 +50,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/scorecard-reports"
+          # Normalize only local Git metadata; keep the exact tested checkout unchanged.
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
           if [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] && git cat-file -e "${BASE_SHA}^{commit}"; then
             # Scorecard's local client requires a real repository and origin, not a source archive.
             baseline="$RUNNER_TEMP/scorecard-baseline"
