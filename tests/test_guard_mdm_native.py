@@ -285,9 +285,9 @@ def test_windows_native_verification_fails_closed_without_publisher_pin(tmp_path
 
     assert not result.healthy
     assert result.reason_code == "native_publisher_pin_absent"
-
-
-def test_macos_native_verification_fails_closed_without_team_id(tmp_path: Path) -> None:
+    assert "Artifact Signing" in (native.verify_native_install.__doc__ or "")
+    assert "HOLGuardMachine" in (native._verify_windows.__doc__ or "")
+    assert "Artifact Signing" in (native._verify_windows.__doc__ or "")
     result = native._verify_macos(tmp_path, expected_team_id=None)
 
     assert not result.healthy
