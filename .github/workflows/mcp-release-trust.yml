@@ -30,7 +30,7 @@ jobs:
       - name: Validate release verifier and regression contracts
         run: |
           uv run --no-sync ruff check scripts/ci/verify_release_workflow_run.py tests/test_mcp_release_source_verification.py tests/test_ci_speed_contracts.py
-          uv run --no-sync ruff format --check scripts/ci/verify_release_workflow_run.py tests/test_mcp_release_source_verification.py tests/test_ci_speed_contracts.py
+          uv run --no-sync ruff format --check --diff scripts/ci/verify_release_workflow_run.py tests/test_mcp_release_source_verification.py tests/test_ci_speed_contracts.py
           uv run --no-sync pytest -q tests/test_mcp_release_source_verification.py tests/test_ci_speed_contracts.py tests/test_release_patch_alpha_consumers.py tests/test_workflow_token_permissions.py tests/test_privileged_workflow_policy.py
       - name: Install checksum-verified Scorecard
         env:
