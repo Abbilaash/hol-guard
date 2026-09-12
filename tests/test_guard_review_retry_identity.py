@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from dataclasses import replace
 from pathlib import Path
 
@@ -208,4 +209,89 @@ def test_identity_recovery_leaves_decisions_and_resumable_sessions_untouched(
         )
         == 0
     )
+    assert store.get_sync_payload("guard_exact_cloud_review_capability") is None
+
+
+@pytest.mark.parametrize("failed_write", ["insert", "update of acknowledged_at", "delete"])
+def test_identity_repair_and_acknowledgment_roll_back_together(tmp_path: Path, failed_write: str) -> None:
+    store = connected_exact_review_store(tmp_path)
+    add_review_request(store, review_request("atomic-request"))
+    binding = store.get_review_event_oauth_binding()
+    assert binding is not None
+    fields = ("oauth_subject_hash", "workspace_id", "machine_id", "machine_installation_id")
+    delivery_binding = {field: binding[field] for field in fields}
+    with store._connect() as connection:
+        _ = connection.execute(
+            "update approval_requests set continuation_snapshot_json = ? where request_id = ?",
+            (json.dumps(_snapshot(_UPSTREAM)), "atomic-request"),
+        )
+    _ = store.requeue_pending_review_events(changed_at=_NOW, require_binding=True)
+    events = store.list_ready_review_events(
+        now=_LATER,
+        limit=10,
+        oauth_subject_hash=binding["oauth_subject_hash"],
+        workspace_id=binding["workspace_id"],
+        machine_id=binding["machine_id"],
+        machine_installation_id=binding["machine_installation_id"],
+    )
+    sequences = [event["sequence"] for event in events]
+    assert all(isinstance(sequence, int) for sequence in sequences)
+    _ = store.acknowledge_review_events(
+        [sequence for sequence in sequences[:-1] if isinstance(sequence, int)], **delivery_binding
+    )
+    with store._connect() as connection:
+        before = [tuple(row) for row in connection.execute("select * from guard_review_outbox_events")]
+        versions = [tuple(row) for row in connection.execute("select * from guard_review_outbox_request_sequences")]
+        sequence = int(connection.execute("select max(stream_sequence) from guard_review_outbox_events").fetchone()[0])
+        _ = connection.execute(
+            f"""create trigger fail_retry_repair before {failed_write} on guard_review_outbox_events
+            begin select raise(abort, 'injected repair failure'); end"""
+        )
+
+    with pytest.raises(sqlite3.IntegrityError, match="injected repair failure"):
+        _ = store.repair_rejected_review_correlation(
+            event_sequence=sequence, binding=delivery_binding, changed_at=_LATER
+        )
+
+    with store._connect() as connection:
+        snapshot_json = connection.execute(
+            "select continuation_snapshot_json from approval_requests where request_id = ?", ("atomic-request",)
+        ).fetchone()[0]
+        assert json.loads(snapshot_json) == _snapshot(_UPSTREAM)
+        assert [tuple(row) for row in connection.execute("select * from guard_review_outbox_events")] == before
+        assert [
+            tuple(row) for row in connection.execute("select * from guard_review_outbox_request_sequences")
+        ] == versions
+        _ = connection.execute("drop trigger fail_retry_repair")
+
+    assert (
+        store.repair_rejected_review_correlation(event_sequence=sequence, binding=delivery_binding, changed_at=_LATER)
+        == 1
+    )
+    with store._connect() as connection:
+        assert (
+            connection.execute(
+                "select 1 from guard_review_outbox_events where stream_sequence = ?", (sequence,)
+            ).fetchone()
+            is None
+        )
+    ready = store.list_ready_review_events(
+        now=_LATER,
+        limit=10,
+        oauth_subject_hash=binding["oauth_subject_hash"],
+        workspace_id=binding["workspace_id"],
+        machine_id=binding["machine_id"],
+        machine_installation_id=binding["machine_installation_id"],
+    )
+    assert [(event["event_type"], event["local_request_id"]) for event in ready] == [
+        ("review.request.refreshed", "atomic-request"),
+        ("review.request.snapshot_requeued", "atomic-request"),
+    ]
+    assert [decode_stored_review_event(event).snapshot["continuation_snapshot_json"] for event in ready] == [
+        _snapshot(cloud_review_correlation_id("atomic-request")),
+        _snapshot(cloud_review_correlation_id("atomic-request")),
+    ]
+    saved = store.get_approval_request("atomic-request")
+    assert saved is not None and saved["status"] == "pending"
+    assert saved["continuation_snapshot"] == _snapshot(cloud_review_correlation_id("atomic-request"))
     assert store.get_sync_payload("guard_exact_cloud_review_capability") is None

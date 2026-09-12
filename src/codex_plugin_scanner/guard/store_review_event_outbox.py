@@ -8,6 +8,7 @@ import json
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta, timezone
 
+from .store_review_event_acknowledgment import acknowledge_review_events
 from .store_review_event_outbox_binding import (
     explicitly_reassign_quarantined_events,
     load_review_oauth_binding,
@@ -231,59 +232,13 @@ class StoreReviewEventOutboxMixin:
         )
         with self._connect() as connection:
             connection.execute("begin immediate")
-            acknowledged_at = datetime.now(timezone.utc).isoformat()
-            placeholders = ",".join("?" for _ in acknowledged)
-            connection.execute(
-                f"""
-                update guard_review_outbox_events set acknowledged_at = ?
-                where stream_sequence in ({placeholders})
-                  and oauth_source = ? and oauth_subject_hash = ? and workspace_id = ?
-                  and machine_id = ? and machine_installation_id = ?
-                  and binding_status = 'ready' and acknowledged_at is null
-                """,
-                (acknowledged_at, *sorted(acknowledged), self._guard_source, *binding),
+            return acknowledge_review_events(
+                connection,
+                source=self._guard_source,
+                sequences=sorted(acknowledged),
+                binding=binding,
+                acknowledged_at=datetime.now(timezone.utc).isoformat(),
             )
-            rows = connection.execute(
-                """
-                select stream_sequence, acknowledged_at from guard_review_outbox_events
-                where oauth_source = ? and oauth_subject_hash = ? and workspace_id = ?
-                  and machine_id = ? and machine_installation_id = ?
-                  and binding_status = 'ready'
-                order by stream_sequence
-                """,
-                (self._guard_source, *binding),
-            ).fetchall()
-            prefix: list[int] = []
-            for row in rows:
-                if row["acknowledged_at"] is None:
-                    break
-                prefix.append(int(row["stream_sequence"]))
-            if not prefix:
-                return 0
-            placeholders = ",".join("?" for _ in prefix)
-            cursor = connection.execute(
-                f"""
-                delete from guard_review_outbox_events
-                where stream_sequence in ({placeholders}) and binding_status = 'ready'
-                """,
-                prefix,
-            )
-            highest = prefix[-1]
-            connection.execute(
-                """
-                insert into guard_review_outbox_cursors (
-                  oauth_source, oauth_subject_hash, workspace_id, machine_id,
-                  machine_installation_id, acknowledged_stream_sequence, updated_at
-                ) values (?, ?, ?, ?, ?, ?, ?)
-                on conflict(oauth_source, oauth_subject_hash, workspace_id, machine_id, machine_installation_id)
-                do update set acknowledged_stream_sequence = max(
-                  guard_review_outbox_cursors.acknowledged_stream_sequence,
-                  excluded.acknowledged_stream_sequence
-                ), updated_at = excluded.updated_at
-                """,
-                (self._guard_source, *binding, highest, acknowledged_at),
-            )
-            return max(0, int(cursor.rowcount or 0))
 
     def retry_review_events(
         self,

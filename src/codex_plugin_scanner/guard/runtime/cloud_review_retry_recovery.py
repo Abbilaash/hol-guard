@@ -41,8 +41,6 @@ def repair_retry_identity_failures(
         )
         > 0
     }
-    if repaired:
-        _ = store.acknowledge_review_events(sorted(repaired), **binding)
     retained = [
         (sequence, result) for sequence, result in zip(sequences, results, strict=True) if sequence not in repaired
     ]

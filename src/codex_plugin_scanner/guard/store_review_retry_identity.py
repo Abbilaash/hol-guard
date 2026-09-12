@@ -8,7 +8,8 @@ from collections.abc import Mapping
 
 from .continuation_snapshot import validated_continuation_snapshot
 from .review_correlation import cloud_review_correlation_id
-from .store_review_event_outbox_binding import load_review_oauth_binding
+from .store_review_event_acknowledgment import acknowledge_review_events
+from .store_review_event_outbox_binding import load_review_oauth_binding, normalized_delivery_binding
 from .store_review_event_outbox_writes import append_request_snapshot_event
 
 _BINDING_FIELDS = ("oauth_subject_hash", "workspace_id", "machine_id", "machine_installation_id")
@@ -63,10 +64,25 @@ def repair_rejected_review_correlation(
         "update approval_requests set continuation_snapshot_json = ? where request_id = ? and oauth_source = ?",
         (json.dumps(snapshot, sort_keys=True, separators=(",", ":")), request_id, source),
     )
-    return append_request_snapshot_event(
+    appended = append_request_snapshot_event(
         connection,
         request_id=request_id,
         source=source,
         event_type="review.request.snapshot_requeued",
         occurred_at=changed_at,
     )
+    if appended == 0:
+        raise sqlite3.IntegrityError("Retry identity repair did not append its replacement event")
+    _ = acknowledge_review_events(
+        connection,
+        source=source,
+        sequences=[event_sequence],
+        binding=normalized_delivery_binding(
+            oauth_subject_hash=binding["oauth_subject_hash"],
+            workspace_id=binding["workspace_id"],
+            machine_id=binding["machine_id"],
+            machine_installation_id=binding["machine_installation_id"],
+        ),
+        acknowledged_at=changed_at,
+    )
+    return appended
