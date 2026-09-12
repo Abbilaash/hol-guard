@@ -66,11 +66,7 @@ def _validate_run(run: dict, repository: str, repository_id: int, workflow_id: i
 
 
 def verify_release_source(
-    event: object,
-    *,
-    event_name: str,
-    repository: str,
-    fetch_json: Callable[[str], object],
+    event: object, *, event_name: str, repository: str, fetch_json: Callable[[str], object]
 ) -> tuple[str, str]:
     """Recheck the run through GitHub and prove its SHA is on a trusted release branch."""
     if event_name != "workflow_run" or _REPOSITORY.fullmatch(repository) is None:
