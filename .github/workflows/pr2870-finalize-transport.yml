@@ -21,6 +21,8 @@ jobs:
         with:
           python-version: '3.12'
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39
+        with:
+          version: '0.9.26'
       - name: Apply and validate final CI fixes
         shell: bash
         run: |
