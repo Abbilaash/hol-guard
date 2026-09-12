@@ -51,9 +51,13 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/scorecard-reports"
           if [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] && git cat-file -e "${BASE_SHA}^{commit}"; then
-            mkdir -p "$RUNNER_TEMP/scorecard-baseline"
-            git archive "$BASE_SHA" .github/workflows | tar -x -C "$RUNNER_TEMP/scorecard-baseline"
-            "$RUNNER_TEMP/scorecard-bin/scorecard" --local="$RUNNER_TEMP/scorecard-baseline" \
+            # Scorecard's local client requires a real repository and origin, not a source archive.
+            baseline="$RUNNER_TEMP/scorecard-baseline"
+            git clone --shared --no-checkout -- "$GITHUB_WORKSPACE" "$baseline"
+            git -C "$baseline" remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+            git -C "$baseline" -c core.hooksPath=/dev/null checkout --detach "$BASE_SHA"
+            test "$(git -C "$baseline" rev-parse HEAD)" = "$BASE_SHA"
+            "$RUNNER_TEMP/scorecard-bin/scorecard" --local="$baseline" \
               --checks=Dangerous-Workflow,Token-Permissions --format=json --show-details \
               --output="$RUNNER_TEMP/scorecard-reports/before.json"
           fi
