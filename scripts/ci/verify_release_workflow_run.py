@@ -95,11 +95,7 @@ def verify_release_source(
     comparison = _mapping(fetch_json(f"{prefix}/compare/{sha}...{head}?per_page=1"), "branch comparison")
     base = _mapping(comparison.get("base_commit"), "comparison base")
     merge_base = _mapping(comparison.get("merge_base_commit"), "comparison merge base")
-    if (
-        comparison.get("status") not in {"ahead", "identical"}
-        or base.get("sha") != sha
-        or merge_base.get("sha") != sha
-    ):
+    if comparison.get("status") not in {"ahead", "identical"} or base.get("sha") != sha or merge_base.get("sha") != sha:
         raise ValueError("The release SHA is not reachable from its trusted release branch")
     return verified
 
