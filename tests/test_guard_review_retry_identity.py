@@ -139,14 +139,18 @@ def test_background_retry_replay_is_once_per_binding_and_keeps_ids(tmp_path: Pat
     fields = ("oauth_subject_hash", "workspace_id", "machine_id", "machine_installation_id")
     delivery_binding = {field: binding[field] for field in fields}
     events = store.list_ready_review_events(
-        now=_LATER, limit=10,
-        oauth_subject_hash=binding["oauth_subject_hash"], workspace_id=binding["workspace_id"],
-        machine_id=binding["machine_id"], machine_installation_id=binding["machine_installation_id"],
+        now=_LATER,
+        limit=10,
+        oauth_subject_hash=binding["oauth_subject_hash"],
+        workspace_id=binding["workspace_id"],
+        machine_id=binding["machine_id"],
+        machine_installation_id=binding["machine_installation_id"],
     )
     sequences = [event["sequence"] for event in events]
     assert all(isinstance(sequence, int) for sequence in sequences)
     _ = store.acknowledge_review_events(
-        [sequence for sequence in sequences if isinstance(sequence, int)], **delivery_binding,
+        [sequence for sequence in sequences if isinstance(sequence, int)],
+        **delivery_binding,
     )
     assert store.review_event_outbox_status(now=_LATER, **delivery_binding)["depth"] == 0
     assert prepare_retry_identity_replay(store, binding=binding) == 1
