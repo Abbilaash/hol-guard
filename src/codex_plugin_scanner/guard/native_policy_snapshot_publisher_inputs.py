@@ -204,14 +204,13 @@ class NativePolicySnapshotPublisherInputs:
 
         force_republish = False
         if changed_paths:
-            config_path = str(self.guard_home / "config.toml")
             database_paths = {
                 str(self.guard_home / name) for name in ("guard.db", "guard.db-wal", "guard.db-shm", "guard.db-journal")
             }
             database_only_change = all(path in database_paths for path in changed_paths)
-            if not database_only_change and any(path != config_path for path in changed_paths):
-                # Workspace overrides, MDM policy files, and verifier state
-                # are all effective-input boundaries. Republish before the
+            if not database_only_change:
+                # Guard config, workspace overrides, MDM policy files, and
+                # verifier state are effective-input boundaries. Republish before the
                 # resident is used even when this Python projection cannot
                 # yet express a workspace-specific native policy.
                 force_republish = True

@@ -270,6 +270,55 @@ def test_non_database_policy_change_revokes_readiness_before_compilation(
         publisher.close()
 
 
+@pytest.mark.parametrize("config_mode", ["enforce", "observe"])
+def test_config_change_revokes_readiness_before_compilation_and_preserves_retry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    config_mode: str,
+) -> None:
+    clock = _DeterministicClock()
+    publisher = NativePolicySnapshotPublisher(
+        store=GuardStore(tmp_path / "guard-home"),
+        client_request=lambda **_kwargs: b"unused",
+        wall_clock=clock.wall_time,
+        monotonic_clock=clock.monotonic_time,
+    )
+    enforce_policy = {"mode": "enforce", "blocked_capabilities": ["network"]}
+    config_policy = {"mode": config_mode, "blocked_capabilities": ["network"]}
+    database_change = {str(publisher.guard_home / "guard.db-wal")}
+    config_change = {str(publisher.guard_home / "config.toml")}
+    policies = iter((enforce_policy, config_policy, config_policy))
+
+    def compile_policy() -> dict[str, object]:
+        policy = next(policies)
+        if policy is config_policy:
+            assert not publisher.is_ready()
+            assert publisher.current_snapshot_binding() is None
+        return policy
+
+    monkeypatch.setattr(publisher, "_compiled_effective_policy", compile_policy)
+    publisher._snapshot = {"expires_at_ms": int(clock.wall * 1_000) + 60_000, "generation": 1}
+    try:
+        assert publisher._policy_input_changed(database_change)
+        publisher._acked = True
+        assert publisher.is_ready()
+        assert publisher.current_snapshot_binding() is not None
+
+        assert publisher._policy_input_changed(config_change)
+        assert not publisher.is_ready()
+        assert publisher.current_snapshot_binding() is None
+
+        publisher._record_error("native_policy_snapshot_resident_changed")
+        retry_deadline = publisher._retry_not_before_monotonic
+        assert retry_deadline is not None
+
+        assert not publisher._policy_input_changed(database_change)
+        assert publisher._retry_not_before_monotonic == retry_deadline
+        assert publisher._failure_count == 1
+    finally:
+        publisher.close()
+
+
 def test_invalid_policy_observation_then_valid_recovery_rearms_publication(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
