@@ -96,7 +96,7 @@ def managed_extension_source(
         "]);\n"
         "\n"
         "type GuardResponse = {\n"
-        "  decision?: string;\n"
+        '  decision: "allow" | "deny";\n'
         "  reason?: string;\n"
         "  approval_request_id?: string;\n"
         "  approval_url?: string;\n"
@@ -105,7 +105,9 @@ def managed_extension_source(
         '  model_output_action?: "allow_original" | "replace_with_reviewed_excerpt" | "block" | "not_applicable";\n'
         "  reviewed_output_sha256?: string;\n"
         "  observed_policy_action?: string;\n"
+        "  observed_review_failure?: boolean;\n"
         "  observe_mode?: boolean;\n"
+        "  policy_action?: string;\n"
         '  notice?: "none" | "excerpt" | "warning";\n'
         "  reason_code?: string;\n"
         "};\n"
@@ -116,6 +118,26 @@ def managed_extension_source(
         "  response: GuardResponse | null;\n"
         "  recoveryKind: GuardDaemonRecoveryKind | null;\n"
         "};\n"
+        "\n"
+        "function normalizeGuardResponse(value: unknown): GuardResponse | null {\n"
+        '  if (!value || typeof value !== "object" || Array.isArray(value)) return null;\n'
+        "  const parsed = value as Record<string, unknown>;\n"
+        '  if (parsed.reason !== undefined && parsed.reason !== null && typeof parsed.reason !== "string") return null;\n'
+        '  if (parsed.decision === "allow" || parsed.decision === "deny") {\n'
+        "    return parsed as GuardResponse;\n"
+        "  }\n"
+        '  if (parsed.decision === "block") {\n'
+        '    return { ...parsed, decision: "deny" } as GuardResponse;\n'
+        "  }\n"
+        "  return null;\n"
+        "}\n"
+        "\n"
+        "function fallbackGuardResponse(\n"
+        "  reasonCode: string,\n"
+        "  reason: string,\n"
+        "): GuardResponse {\n"
+        "  return { decision: \"deny\", reason, reason_code: reasonCode };\n"
+        "}\n"
         "\n"
         "function loadGuardDaemonConnection(): GuardDaemonConnection | null {\n"
         "  let port = 0;\n"
@@ -197,12 +219,14 @@ def managed_extension_source(
         "      };\n"
         "    }\n"
         "    const raw = (await response.text()).trim();\n"
-        "    if (!raw) return { response: {}, recoveryKind: null };\n"
+        '    if (!raw) return { response: null, recoveryKind: "transport-failure" };\n'
         "    try {\n"
-        "      const parsed = JSON.parse(raw) as GuardResponse;\n"
-        "      if (parsed && typeof parsed === 'object') {\n"
-        "        return { response: parsed, recoveryKind: null };\n"
+        "      const parsed = JSON.parse(raw) as unknown;\n"
+        "      const normalized = normalizeGuardResponse(parsed);\n"
+        "      if (normalized !== null) {\n"
+        "        return { response: normalized, recoveryKind: null };\n"
         "      }\n"
+        '      return { response: null, recoveryKind: "transport-failure" };\n'
         "    } catch {}\n"
         "    return {\n"
         "      response: {\n"
@@ -362,8 +386,9 @@ def managed_extension_source(
         "  const lastLine = lines.length > 0 ? lines[lines.length - 1] : null;\n"
         "  if (lastLine) {\n"
         "    try {\n"
-        "      const parsed = JSON.parse(lastLine) as GuardResponse;\n"
-        '      if (parsed && typeof parsed === "object") return parsed;\n'
+        "      const parsed = JSON.parse(lastLine) as unknown;\n"
+        "      const normalized = normalizeGuardResponse(parsed);\n"
+        "      if (normalized !== null) return normalized;\n"
         "    } catch {}\n"
         "  }\n"
         "  if ((result.status ?? 0) !== 0) {\n"
@@ -372,7 +397,10 @@ def managed_extension_source(
         '      reason: (result.stderr ?? "").trim() || "Blocked by HOL Guard.",\n'
         "    };\n"
         "  }\n"
-        '  return { decision: "allow" };\n'
+        '  return fallbackGuardResponse(\n'
+        '    "guard_cli_invalid_response",\n'
+        '    "HOL Guard fallback did not return a valid decision. Retry the action.",\n'
+        "  );\n"
         "}\n"
         "\n"
         "function modelVisibleBlockedReason(reason: string): string {\n"

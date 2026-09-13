@@ -413,6 +413,30 @@ class TestPiInstall:
         assert "could not complete fallback review before the Pi deadline" in text
         assert "HOL Guard Pi hook failed before completing review" in text
 
+    def test_managed_extension_fails_safe_on_ambiguous_success_payloads(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ) -> None:
+        ctx = _ctx(tmp_path)
+        monkeypatch.setattr(
+            "codex_plugin_scanner.guard.adapters.pi.install_guard_shim",
+            lambda *args, **kwargs: {"shim_path": str(ctx.guard_home / "bin" / "guard-pi"), "notes": []},
+        )
+
+        manifest = get_adapter("pi").install(ctx)
+        text = Path(str(manifest["config_path"])).read_text(encoding="utf-8")
+
+        assert 'if (!raw) return { response: null, recoveryKind: "transport-failure" };' in text
+        assert "function normalizeGuardResponse(" in text
+        assert "const normalized = normalizeGuardResponse(parsed);" in text
+        assert 'parsed.reason !== undefined && parsed.reason !== null && typeof parsed.reason !== "string"' in text
+        assert 'if (parsed.decision === "block")' in text
+        assert "Array.isArray(value)" in text
+        assert "function fallbackGuardResponse(" in text
+        assert '"guard_cli_invalid_response"' in text
+        assert 'hook_event_name: "PreToolUse"' in text
+
     def test_install_writes_managed_extension_that_truncates_post_tool_payloads(
         self,
         tmp_path: Path,

@@ -2123,14 +2123,22 @@ function SettingsSaveProofModal(props) {
     },
     [props.onCancel, props.pending]
   );
-  const handleConfirm = reactExports.useCallback(() => {
+  const handleConfirm = reactExports.useCallback((event) => {
+    event.preventDefault();
+    if (props.pending || isSettingsSaveProofSubmitDisabled(
+      props.mode,
+      { currentPassword, newPassword, confirmPassword, totpCode },
+      totpRequired
+    )) {
+      return;
+    }
     props.onConfirm({
       ...currentPassword.trim().length > 0 ? { currentPassword } : {},
       ...newPassword.trim().length > 0 ? { newPassword } : {},
       ...confirmPassword.trim().length > 0 ? { confirmPassword } : {},
       ...totpCode.trim().length > 0 ? { totpCode } : {}
     });
-  }, [confirmPassword, currentPassword, newPassword, props, totpCode]);
+  }, [confirmPassword, currentPassword, newPassword, props, totpCode, totpRequired]);
   const credentials = {
     currentPassword,
     newPassword,
@@ -2150,10 +2158,11 @@ function SettingsSaveProofModal(props) {
       "aria-modal": "true",
       "aria-labelledby": "settings-save-proof-title",
       children: /* @__PURE__ */ jsxRuntimeExports.jsxs(
-        "div",
+        "form",
         {
           ref: dialogRef,
           className: "w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl",
+          onSubmit: handleConfirm,
           children: [
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-3", children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "inline-flex h-10 w-10 items-center justify-center rounded-full bg-brand-blue/10", children: /* @__PURE__ */ jsxRuntimeExports.jsx(HiMiniKey, { className: "h-5 w-5 text-brand-blue", "aria-hidden": "true" }) }),
@@ -2238,7 +2247,7 @@ function SettingsSaveProofModal(props) {
                   children: "Go back"
                 }
               ),
-              /* @__PURE__ */ jsxRuntimeExports.jsx(ActionButton, { onClick: handleConfirm, disabled: props.pending || confirmDisabled, children: props.pending ? "Working…" : props.confirmLabel })
+              /* @__PURE__ */ jsxRuntimeExports.jsx(ActionButton, { type: "submit", disabled: props.pending || confirmDisabled, children: props.pending ? "Working…" : props.confirmLabel })
             ] })
           ]
         }
