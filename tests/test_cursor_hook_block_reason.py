@@ -38,6 +38,27 @@ def test_installed_cursor_hook_script_includes_approval_url_copy() -> None:
     assert "primary_approval_url" in _HOOK_SCRIPT_TEMPLATE
 
 
+def test_cursor_ask_keeps_signed_approval_url() -> None:
+    review_url = "http://127.0.0.1:5474/requests/req-cursor-1"
+    signed = f"{review_url}#guard-token=gld1.abc.def"
+    response = cursor_hook_response_from_guard(
+        policy_action="review",
+        guard_payload={
+            "reason": (
+                "HOL Guard paused this browser script until you approve it. "
+                f"Open HOL Guard to approve or keep this blocked: {signed}."
+            ),
+            "approval_request_id": "req-cursor-1",
+            "approval_url": review_url,
+        },
+        hook_event_name="beforeMCPExecution",
+    )
+    agent = str(response["agent_message"])
+    assert signed in agent
+    assert agent.count("http://") == 1
+    assert "Open HOL Guard to approve or keep this blocked:" in agent
+
+
 def test_cursor_ask_includes_approval_url_for_the_agent() -> None:
     review_url = "http://127.0.0.1:5474/requests/req-cursor-1"
     response = cursor_hook_response_from_guard(
