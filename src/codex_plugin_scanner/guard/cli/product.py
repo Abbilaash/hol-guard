@@ -189,7 +189,10 @@ def _summarize_managed_install(install: dict[str, object], home_dir: Path) -> di
     manifest = install.get("manifest")
     shim_path = manifest.get("shim_path") if isinstance(manifest, dict) else None
     approval_flow = adapter.approval_flow(managed_install=install)
-    warning_count = _managed_install_warning_count(managed=managed, manifest=manifest if isinstance(manifest, dict) else None)
+    warning_count = _managed_install_warning_count(
+        managed=managed,
+        manifest=manifest if isinstance(manifest, dict) else None,
+    )
     return {
         "harness": harness,
         "installed": managed,
