@@ -71,6 +71,9 @@ def test_daemon_serve_publishes_listen_state_before_artifact_reconciliation(
         events = [record["event"] for record in records]
         assert "daemon_listen_ready" in events
         assert "runtime_artifact_reconciliation_completed" not in events
+        refresh = daemon.refresh_command_queue_worker()
+        assert refresh["running"] is False
+        assert refresh["sync_running"] is False
     finally:
         release_reconcile.set()
         daemon.stop()

@@ -7900,6 +7900,7 @@ class GuardDaemonServer:
         self._active_start_generation: int | None = None
         self._finish_service_lock = threading.Lock()
         self._finish_service_completed = False
+        self._owned_service_ready = False
         self._serve_thread_error: BaseException | None = None
         self._owner_lock: BinaryIO | None = None
         try:
@@ -8079,7 +8080,11 @@ class GuardDaemonServer:
             raise RuntimeError("Guard daemon stopped during startup")
         self._server.hook_process_runner.require_initial_capacity()
         self._reconcile_runtime_artifacts_best_effort()
+        if not startup_generation_is_current(self, generation):
+            raise RuntimeError("Guard daemon stopped during startup")
         self._maintain_command_activity_best_effort()
+        if not startup_generation_is_current(self, generation):
+            raise RuntimeError("Guard daemon stopped during startup")
         self._persist_aibom_inventory_context()
 
         def start_post_listen_workers() -> None:
@@ -8103,6 +8108,7 @@ class GuardDaemonServer:
             )
             self._start_command_activity_maintenance()
             self._record_lifecycle("ready")
+            self._owned_service_ready = True
             self._diagnostics.record("daemon_ready")
 
         if already_locked:
@@ -8121,6 +8127,12 @@ class GuardDaemonServer:
                 "sync_running": False,
             }
         try:
+            if not self._owned_service_ready or self._shutdown_started.is_set():
+                return {
+                    "operation": "guard.review.resolveExact",
+                    "running": False,
+                    "sync_running": False,
+                }
             self._command_queue_worker, running = refresh_command_queue_worker(
                 self._server.store,
                 self._command_queue_worker,
@@ -8301,6 +8313,7 @@ class GuardDaemonServer:
             return contained
 
     def _finish_service_locked(self) -> bool:
+        self._owned_service_ready = False
         self._shutdown_started.set()
         contained = True
         stop_request_executors = getattr(self._server, "_stop_request_executors", None)
