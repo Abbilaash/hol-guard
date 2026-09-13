@@ -1,4 +1,4 @@
-name: PR 2870 finalize CI fixes
+name: PR 2870 final policy repairs
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions: {}
 
 jobs:
   finalize:
-    if: "${{ github.repository == 'hashgraph-online/hol-guard' && github.event.head_commit.message == 'ci: apply verified PR 2870 CI fixes' }}"
+    if: "${{ github.repository == 'hashgraph-online/hol-guard' && github.event.head_commit.message == 'ci: apply PR 2870 final policy repairs' }}"
     permissions:
       contents: write
     runs-on: ubuntu-latest
@@ -24,7 +24,7 @@ jobs:
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39
         with:
           version: '0.9.26'
-      - name: Apply and validate final CI fixes
+      - name: Apply, validate, and publish repairs
         shell: bash
         run: |
           set -euo pipefail
@@ -33,11 +33,11 @@ jobs:
 
           def replace_once(path: str, old: str, new: str) -> None:
               file = Path(path)
-              text = file.read_text()
+              text = file.read_text(encoding="utf-8")
               count = text.count(old)
               if count != 1:
                   raise SystemExit(f"{path}: expected one replacement, found {count}")
-              file.write_text(text.replace(old, new))
+              file.write_text(text.replace(old, new), encoding="utf-8")
 
           support = "src/codex_plugin_scanner/guard/runtime/_shell_secret_read_support.py"
           replace_once(
@@ -54,63 +54,70 @@ jobs:
           new_prefilter = '''def _command_may_need_read_assessment(command_text: str) -> bool:\n    """Skip filesystem modeling when syntax cannot read files or launch local code."""\n\n    try:\n        tokens = split_shell_tokens(command_text)\n    except ValueError:\n        return True\n    interesting = {\n        *_SHELLS,\n        *_OTHER_READERS,\n        "cat",\n        "head",\n        "tail",\n        "sed",\n        "grep",\n        "egrep",\n        "fgrep",\n        "rg",\n        "read",\n        "command",\n        "exec",\n        "node",\n        "bun",\n        "ruby",\n        "perl",\n        "builtin",\n        "env",\n        "sudo",\n        "nohup",\n        "time",\n        "nice",\n        "stdbuf",\n        "timeout",\n        "find",\n        "xargs",\n        "parallel",\n    }\n    command_position = True\n    for token in tokens:\n        if token in _COMMAND_BOUNDARIES:\n            command_position = True\n            continue\n        if "<" in token:\n            return True\n        normalized = token.strip()\n        if not normalized:\n            continue\n        if command_position and _SHELL_ASSIGNMENT.fullmatch(normalized):\n            continue\n        name = "." if normalized == "." else Path(normalized).name.lower()\n        if name in interesting or _python_executable(name):\n            return True\n        if command_position and (_path_qualified(normalized) or normalized == "!"):\n            return True\n        command_position = False\n    return False\n'''
           replace_once(support, old_prefilter, new_prefilter)
 
-          reads = "src/codex_plugin_scanner/guard/runtime/shell_secret_reads.py"
+          requests = "src/codex_plugin_scanner/guard/runtime/secret_file_request_services/tool_action_requests.py"
           replace_once(
-              reads,
-              '''            if command_string_requested:\n                requested = True\n                if payload is None or len(payload.encode("utf-8")) > _MAX_INLINE_SCRIPT_BYTES or depth >= _MAX_DEPTH:\n                    incomplete = True\n                else:\n                    pending.append((payload, effective_cwd, depth + 1))\n''',
-              '''            if command_string_requested:\n                if payload is None or len(payload.encode("utf-8")) > _MAX_INLINE_SCRIPT_BYTES or depth >= _MAX_DEPTH:\n                    requested = True\n                    incomplete = True\n                else:\n                    # A literal -c/--command payload is already visible to Guard.\n                    # Recurse into it instead of treating the shell wrapper itself\n                    # as mutable local code. Nested scripts and secret reads retain\n                    # their normal review floors.\n                    pending.append((payload, effective_cwd, depth + 1))\n''',
+              requests,
+              '''            if destructive_shell_request is not None:\n                destructive_shell_request = _request_with_shell_execution_context(\n                    destructive_shell_request,\n                    command_text=normalized_command_text,\n                    cwd=cwd,\n                )\n''',
+              '''            if (\n                destructive_shell_request is not None\n                and destructive_shell_request.reason_code == "shell_local_script_execution_review"\n            ):\n                # The transparent wrapper has already been proven and the normalized\n                # inner command was classified above. Do not let the raw wrapper's\n                # -c transport syntax manufacture a second opaque-script review.\n                destructive_shell_request = None\n            if destructive_shell_request is not None:\n                destructive_shell_request = _request_with_shell_execution_context(\n                    destructive_shell_request,\n                    command_text=normalized_command_text,\n                    cwd=cwd,\n                )\n''',
           )
 
-          evaluation = "src/codex_plugin_scanner/guard/runtime/command_evaluation.py"
+          benign = "src/codex_plugin_scanner/guard/runtime/secret_file_request_services/benign_requests.py"
           replace_once(
-              evaluation,
-              '''    authorization_evidence = github_workflow_authorization_evidence(\n        workflow_authorization,\n        command_identity=command.security_identity,\n    )\n    read_assessment = assess_shell_reads(command_text, cwd=cwd, home_dir=home_dir)\n    read_factors: tuple[DecisionFactor, ...] = ()\n''',
-              '''    authorization_evidence = github_workflow_authorization_evidence(\n        workflow_authorization,\n        command_identity=command.security_identity,\n    )\n    authorized_action_class = authorization_evidence[1] if authorization_evidence is not None else None\n    workflow_authorizes_compatibility = (\n        authorized_action_class is not None\n        and effective_compatibility_class is not None\n        and authorized_action_class == effective_compatibility_class\n    )\n    policy_authorizes_compatibility = workflow_authorizes_compatibility or compatibility_explicitly_enabled\n    read_assessment = assess_shell_reads(command_text, cwd=cwd, home_dir=home_dir)\n    read_factors: tuple[DecisionFactor, ...] = ()\n    decision_read_factors: tuple[DecisionFactor, ...] = ()\n''',
+              benign,
+              '''        if assess_shell_reads(command_text, cwd=cwd, home_dir=home_dir).requires_review:\n            return False\n''',
+              '''        read_assessment = assess_shell_reads(command_text, cwd=cwd, home_dir=home_dir)\n        if read_assessment.sensitive_paths:\n            return False\n''',
+          )
+
+          display = "src/codex_plugin_scanner/guard/runtime/command_activity_display.py"
+          replace_once(
+              display,
+              '''_ENV_ASSIGNMENT_RE = re.compile(\n    r"\\b[A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|KEY|CREDENTIAL)[A-Z0-9_]*="\n    r"(?:'(?:\\\\'|[^'])*'|\\\"(?:\\\\\\\"|[^\\\"])*\\\"|\\S+)",\n    re.IGNORECASE,\n)\n_HEREDOC_RE = re.compile(\n''',
+              '''_ENV_ASSIGNMENT_RE = re.compile(\n    r"\\b[A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|KEY|CREDENTIAL)[A-Z0-9_]*="\n    r"(?:'(?:\\\\'|[^'])*'|\\\"(?:\\\\\\\"|[^\\\"])*\\\"|\\S+)",\n    re.IGNORECASE,\n)\n_SENSITIVE_KEY_VALUE_RE = re.compile(\n    r"\\b(?:password|authorization|access[_-]?key)\\b\\s*[:=]\\s*"\n    r"(?:'(?:\\\\'|[^'])*'|\\\"(?:\\\\\\\"|[^\\\"])*\\\"|(?:(?:bearer|basic)\\s+)?[^\\s;&|]+)",\n    re.IGNORECASE,\n)\n_HEREDOC_RE = re.compile(\n''',
           )
           replace_once(
-              evaluation,
-              '''        read_factors = (\n            DecisionFactor(\n                source=DecisionFactorSource.POLICY,\n                reason_code=reason_code,\n                basis=DecisionBasis("require-reapproval", None),\n                operation_ref=f"operation:{command.security_identity.rsplit(':', 1)[-1]}",\n                producer_ref="runtime:shell-read-floors-v1",\n            ),\n        )\n        minimum_action = _stronger_floor(minimum_action, "review")\n''',
-              '''        read_factors = (\n            DecisionFactor(\n                source=DecisionFactorSource.POLICY,\n                reason_code=reason_code,\n                basis=DecisionBasis("require-reapproval", None),\n                operation_ref=f"operation:{command.security_identity.rsplit(':', 1)[-1]}",\n                producer_ref="runtime:shell-read-floors-v1",\n            ),\n        )\n        decision_read_factors = (\n            read_factors\n            if read_assessment.sensitive_paths or not policy_authorizes_compatibility\n            else ()\n        )\n        minimum_action = _stronger_floor(minimum_action, "review")\n''',
+              display,
+              '''    scrubbed = _HEREDOC_RE.sub(r"\\g<op>…\\g<end>", value)\n    scrubbed = _ENV_ASSIGNMENT_RE.sub("[redacted]", scrubbed)\n''',
+              '''    scrubbed = _HEREDOC_RE.sub(r"\\g<op>…\\g<end>", value)\n    scrubbed = _ENV_ASSIGNMENT_RE.sub("[redacted]", scrubbed)\n    scrubbed = _SENSITIVE_KEY_VALUE_RE.sub("[redacted]", scrubbed)\n''',
           )
-          replace_once(
-              evaluation,
-              '    authorized_action_class = authorization_evidence[1] if authorization_evidence is not None else None\n    if contained_routine_candidate is not None:\n',
-              '    if contained_routine_candidate is not None:\n',
-          )
-          replace_once(
-              evaluation,
-              '                *critical_floor_factors,\n                *read_factors,\n                *control_resolution.factors,\n',
-              '                *critical_floor_factors,\n                *decision_read_factors,\n                *control_resolution.factors,\n',
-          )
+
+          tests = "tests/test_guard_command_activity_invocation.py"
+          anchor = '''def test_invocation_preview_scrubs_spaced_heredocs_urls_and_quoted_secrets() -> None:\n'''
+          addition = '''def test_invocation_preview_redacts_colon_delimited_credentials() -> None:\n    raw_values = (\n        "SYNTHETIC_PASSWORD_VALUE",\n        "SYNTHETIC_AUTHORIZATION_VALUE",\n        "SYNTHETIC_ACCESS_KEY_VALUE",\n    )\n    preview = build_invocation_preview(\n        f"echo password: '{raw_values[0]}' authorization: \\\"Bearer {raw_values[1]}\\\" access-key={raw_values[2]}"\n    )\n    assert preview is not None\n    assert all(value not in preview for value in raw_values)\n\n\ndef test_recorded_command_activity_redacts_colon_delimited_credentials(tmp_path: Path) -> None:\n    store = GuardStore(tmp_path / "guard-home", prime_policy_integrity=False)\n    raw_values = (\n        "SYNTHETIC_PASSWORD_VALUE",\n        "SYNTHETIC_AUTHORIZATION_VALUE",\n        "SYNTHETIC_ACCESS_KEY_VALUE",\n    )\n    command = (\n        f"echo password: {raw_values[0]} authorization: {raw_values[1]} "\n        f"access_key: {raw_values[2]}"\n    )\n    assert record_pre_hook_command_activity_best_effort(\n        store=store,\n        guard_home=store.guard_home,\n        harness="codex",\n        event="PreToolUse",\n        payload={\n            "tool_name": "Shell",\n            "tool_input": {"command": command},\n            "tool_call_id": "toolcall_redaction_abcdef1234567890",\n        },\n        policy_action="warn",\n        receipt_id=None,\n        prompted=False,\n    )\n    page = store.list_command_activity_page(CommandActivityListQuery())\n    preview = page["items"][0]["invocation_preview"]\n    assert isinstance(preview, str)\n    assert all(value not in preview for value in raw_values)\n    with sqlite3.connect(store.path) as connection:\n        persisted = connection.execute(\n            "select invocation_preview from command_activity_invocation"\n        ).fetchone()\n    assert persisted is not None\n    assert all(value not in str(persisted[0]) for value in raw_values)\n\n\n'''
+          replace_once(tests, anchor, addition + anchor)
           PY
 
           uv sync --frozen --extra dev --python 3.12
-          uv run --no-sync python tests/guard_command_decision_diff.py --write
           uv run --no-sync pytest -q \
             tests/test_guard_command_decision_diff.py::test_fresh_process_report_is_environment_independent_and_bounded \
-            tests/test_guard_command_git_stash_permission.py \
+            tests/test_guard_copilot_benign_policy_hint.py \
             tests/test_guard_shell_command_wrappers.py::test_wrapped_read_only_shell_command_stays_unblocked \
-            tests/test_guard_cli.py::TestGuardCli::test_guard_codex_hook_observe_mode_does_not_pause_risky_tool_use \
-            tests/test_guard_grok_auto_resume.py::test_grok_isolated_hook_resumes_after_approval \
-            tests/test_guard_surface_server.py::TestGuardSurfaceServer::test_guard_daemon_pi_hook_endpoint_returns_blocked_runtime_review_payload \
-            tests/test_guard_github_workflow_runtime.py::test_resolved_guard_lineage_issues_bounded_retry_capability \
             tests/test_guard_shell_secret_read_floors.py \
             tests/test_guard_shell_read_syntax_fidelity.py \
-            tests/test_guard_compound_developer_inspection.py
+            tests/test_guard_compound_developer_inspection.py \
+            tests/test_guard_command_activity_invocation.py \
+            tests/test_guard_grok_auto_resume.py::test_grok_isolated_hook_resumes_after_approval \
+            tests/test_guard_github_workflow_runtime.py::test_resolved_guard_lineage_issues_bounded_retry_capability \
+            tests/test_guard_command_git_stash_permission.py \
+            tests/test_guard_cli.py::TestGuardCli::test_guard_codex_hook_observe_mode_does_not_pause_risky_tool_use \
+            tests/test_guard_surface_server.py::TestGuardSurfaceServer::test_guard_daemon_pi_hook_endpoint_returns_blocked_runtime_review_payload
           uv run --no-sync python tests/guard_command_decision_diff.py --check
           uv run --no-sync ruff check \
-            src/codex_plugin_scanner/guard/runtime/command_evaluation.py \
             src/codex_plugin_scanner/guard/runtime/_shell_secret_read_support.py \
-            src/codex_plugin_scanner/guard/runtime/shell_secret_reads.py
+            src/codex_plugin_scanner/guard/runtime/secret_file_request_services/tool_action_requests.py \
+            src/codex_plugin_scanner/guard/runtime/secret_file_request_services/benign_requests.py \
+            src/codex_plugin_scanner/guard/runtime/command_activity_display.py \
+            tests/test_guard_command_activity_invocation.py
           uv run --no-sync ruff format --check \
-            src/codex_plugin_scanner/guard/runtime/command_evaluation.py \
             src/codex_plugin_scanner/guard/runtime/_shell_secret_read_support.py \
-            src/codex_plugin_scanner/guard/runtime/shell_secret_reads.py
+            src/codex_plugin_scanner/guard/runtime/secret_file_request_services/tool_action_requests.py \
+            src/codex_plugin_scanner/guard/runtime/secret_file_request_services/benign_requests.py \
+            src/codex_plugin_scanner/guard/runtime/command_activity_display.py \
+            tests/test_guard_command_activity_invocation.py
           test "$(wc -l < src/codex_plugin_scanner/guard/runtime/_shell_secret_read_support.py)" -le 500
           git diff --check
           rm -rf .github/pr2870-finalize .github/workflows/pr2870-finalize-transport.yml
           git add -A
           git config user.name "Michael Kantor"
           git config user.email "6068672+kantorcodes@users.noreply.github.com"
-          git commit -m "fix(guard): preserve authorized workflows and fast-path shell reads"
+          git commit -m "fix(guard): restore policy precision and redact activity previews"
           git push origin HEAD:fix/secret-read-floors-and-contained-vitest
