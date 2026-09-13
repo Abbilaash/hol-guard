@@ -4,14 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from contextlib import suppress
-from hashlib import sha256
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from ..cli.commands_support_command_activity import hook_post_succeeded
 from ..native_mode import python_oracle_surface_enabled
 from ..native_route_receipt import record_python_semantic_hook_route
-from ..native_runtime import NativeRuntimeStatus
+from ..native_runtime import NativeRuntimeStatus, native_output_sha256
 from ..runtime.hook_output_text import extract_payload_output
 from ..runtime.hook_review_types import HookReviewRequest, HookReviewResponse
 from .hook_availability_policy import (
@@ -69,7 +68,7 @@ def _recording_only_output_sha256(payload: Mapping[str, object]) -> str | None:
     extracted = extract_payload_output({"tool_response": payload["tool_response"]})
     if extracted.truncated:
         return None
-    return sha256(extracted.text.encode("utf-8")).hexdigest()
+    return native_output_sha256(extracted.text)
 
 
 def _watch_native_post_tool_result(
