@@ -285,6 +285,34 @@ def test_command_queue_refresh_stays_idle_after_shutdown_starts(tmp_path: Path) 
     assert result["sync_running"] is False
 
 
+def test_begin_owned_service_defers_hook_workers_only_when_publishing_before_listen(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    daemon = GuardDaemonServer(
+        GuardStore(tmp_path / "guard-home", prime_policy_integrity=False),
+        host="127.0.0.1",
+        port=0,
+        idle_timeout_seconds=0,
+    )
+    daemon._lifecycle_generation = 1
+    daemon._active_start_generation = 1
+    seen: list[bool] = []
+
+    def capture_start(*, defer_backfill: bool = False) -> None:
+        seen.append(defer_backfill)
+        raise RuntimeError("stop-after-start-flag")
+
+    monkeypatch.setattr(daemon._server.hook_process_runner, "start", capture_start)
+
+    with pytest.raises(RuntimeError, match="stop-after-start-flag"):
+        daemon._begin_owned_service(1, publish_before_workers=False)
+    with pytest.raises(RuntimeError, match="stop-after-start-flag"):
+        daemon._begin_owned_service(1, publish_before_workers=True)
+
+    assert seen == [False, True]
+
+
 def test_desktop_owned_core_executable_prefers_runtime_owner(monkeypatch, tmp_path: Path) -> None:
     from codex_plugin_scanner.guard.dashboard_launcher import _desktop_owned_core_executable
 

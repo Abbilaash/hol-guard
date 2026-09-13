@@ -8056,7 +8056,7 @@ class GuardDaemonServer:
                 raise RuntimeError("AIBOM inventory refresh is still stopping")
             self._aibom_refresh_thread = None
         self._require_command_activity_maintenance_stopped()
-        self._server.hook_process_runner.start(defer_backfill=True)
+        self._server.hook_process_runner.start(defer_backfill=publish_before_workers)
         if publish_before_workers:
             # Desktop `desktop bootstrap --json` waits for the daemon state
             # file, not for hook workers or artifact reconciliation. Accept
