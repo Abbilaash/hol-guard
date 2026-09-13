@@ -282,6 +282,78 @@ def test_status_payload_warns_when_a_managed_shim_is_missing(monkeypatch, tmp_pa
     assert harness["next_action"] == "review"
 
 
+def test_status_payload_counts_each_missing_managed_path(monkeypatch, tmp_path: Path) -> None:
+    from codex_plugin_scanner.guard.adapters.base import HarnessContext
+    from codex_plugin_scanner.guard.cli import product
+    from codex_plugin_scanner.guard.config import GuardConfig
+    from codex_plugin_scanner.guard.store import GuardStore
+
+    home_dir = tmp_path / "home"
+    workspace = tmp_path / "workspace"
+    guard_home = tmp_path / "guard-home"
+    home_dir.mkdir()
+    workspace.mkdir()
+    store = GuardStore(guard_home)
+    store.set_managed_install(
+        "codex",
+        True,
+        str(workspace),
+        {
+            "shim_path": str(guard_home / "shims" / "codex"),
+            "windows_shim_path": str(guard_home / "shims" / "codex.cmd"),
+        },
+        "2026-09-12T00:00:00+00:00",
+    )
+    context = HarnessContext(home_dir=home_dir, workspace_dir=workspace, guard_home=guard_home)
+    config = GuardConfig(guard_home=guard_home, workspace=workspace)
+    monkeypatch.setattr(
+        product,
+        "detect_all",
+        lambda _context: (_ for _ in ()).throw(AssertionError("status payload must not scan installed apps")),
+    )
+
+    payload = product.build_guard_status_payload(context, store, config, scan_installed_apps=False)
+    assert payload["harnesses"][0]["warning_count"] == 2
+
+
+def test_status_payload_warns_when_managed_opencode_config_is_missing(monkeypatch, tmp_path: Path) -> None:
+    from codex_plugin_scanner.guard.adapters.base import HarnessContext
+    from codex_plugin_scanner.guard.cli import product
+    from codex_plugin_scanner.guard.config import GuardConfig
+    from codex_plugin_scanner.guard.store import GuardStore
+
+    home_dir = tmp_path / "home"
+    workspace = tmp_path / "workspace"
+    guard_home = tmp_path / "guard-home"
+    home_dir.mkdir()
+    workspace.mkdir()
+    store = GuardStore(guard_home)
+    store.set_managed_install(
+        "opencode",
+        True,
+        str(workspace),
+        {
+            "config_path": str(home_dir / ".config" / "opencode" / "opencode.json"),
+            "managed_config_path": str(home_dir / ".config" / "opencode" / "opencode.json"),
+            "runtime_config_path": str(guard_home / "runtime" / "opencode.json"),
+        },
+        "2026-09-12T00:00:00+00:00",
+    )
+    context = HarnessContext(home_dir=home_dir, workspace_dir=workspace, guard_home=guard_home)
+    config = GuardConfig(guard_home=guard_home, workspace=workspace)
+    monkeypatch.setattr(
+        product,
+        "detect_all",
+        lambda _context: (_ for _ in ()).throw(AssertionError("status payload must not scan installed apps")),
+    )
+
+    payload = product.build_guard_status_payload(context, store, config, scan_installed_apps=False)
+    harness = payload["harnesses"][0]
+    assert harness["managed"] is True
+    assert harness["warning_count"] == 3
+    assert harness["next_action"] == "review"
+
+
 def test_status_payload_still_scans_installed_apps_by_default(monkeypatch, tmp_path: Path) -> None:
     from codex_plugin_scanner.guard.adapters.base import HarnessContext
     from codex_plugin_scanner.guard.cli import product

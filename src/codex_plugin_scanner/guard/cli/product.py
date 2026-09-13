@@ -212,13 +212,23 @@ def _summarize_managed_install(install: dict[str, object], home_dir: Path) -> di
 def _managed_install_warning_count(*, managed: bool, manifest: dict[str, object] | None) -> int:
     if not managed or manifest is None:
         return 0
-    for key in ("shim_path", "windows_shim_path", "config_path", "root_path", "settings_path"):
+    missing = 0
+    for key in (
+        "shim_path",
+        "windows_shim_path",
+        "shim_dir",
+        "config_path",
+        "managed_config_path",
+        "runtime_config_path",
+        "root_path",
+        "settings_path",
+    ):
         candidate = manifest.get(key)
         if not isinstance(candidate, str) or not candidate.strip():
             continue
         if not Path(candidate).expanduser().exists():
-            return 1
-    return 0
+            missing += 1
+    return missing
 
 
 def _count_review_artifacts(store: GuardStore, artifacts: tuple[GuardArtifact, ...], harness: str) -> int:
