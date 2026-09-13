@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
+
+import pytest
 
 from codex_plugin_scanner.guard.config import GuardConfig
 from codex_plugin_scanner.guard.daemon.local_cli_api import LocalCliApiError, LocalCliApiService
@@ -177,6 +180,67 @@ def test_env_drift_still_matches_command_and_args(tmp_path: Path) -> None:
     assert runtime.identity_hash != identity.identity_hash
     artifact = _artifact(runtime, "read_file")
     assert matching_local_mcp_grant(store=store, artifact=artifact, current_action="review") == "allowed"
+
+
+def test_npx_absolute_path_still_matches_command_and_args(tmp_path: Path) -> None:
+    npx = shutil.which("npx")
+    if npx is None:
+        pytest.skip("npx is not on PATH")
+    identity = _identity()
+    store = GuardStore(tmp_path / "guard-home")
+    _enroll(store, identity, states={"read_file": "allow"})
+    runtime = build_mcp_server_identity(
+        config_path="",
+        command=npx,
+        args=("-y", "@modelcontextprotocol/server-filesystem"),
+        transport="stdio",
+    )
+    assert runtime.identity_hash != identity.identity_hash
+    assert runtime.args_hash == identity.args_hash
+    artifact = _artifact(runtime, "read_file")
+    assert matching_local_mcp_grant(store=store, artifact=artifact, current_action="review") == "allowed"
+    arguments = {"path": "notes.txt"}
+    decision = evaluate_tool_call(
+        store=store,
+        config=_config(tmp_path),
+        artifact=artifact,
+        artifact_hash=build_tool_call_hash(artifact, arguments, workspace=tmp_path, config=_config(tmp_path)),
+        arguments=arguments,
+        claim_saved_approval=False,
+    )
+    assert decision.action == "allow"
+    assert decision.source == "local-mcp-extension"
+
+
+def test_same_basename_different_executable_does_not_inherit_npx_grant(tmp_path: Path) -> None:
+    impostor = tmp_path / "npx"
+    impostor.write_text("#!/bin/sh\nexit 0\n")
+    impostor.chmod(0o755)
+    identity = _identity()
+    store = GuardStore(tmp_path / "guard-home")
+    _enroll(store, identity, states={"read_file": "allow"})
+    runtime = build_mcp_server_identity(
+        config_path="",
+        command=str(impostor),
+        args=("-y", "@modelcontextprotocol/server-filesystem"),
+        transport="stdio",
+    )
+    artifact = _artifact(runtime, "read_file")
+    assert matching_local_mcp_grant(store=store, artifact=artifact, current_action="review") is None
+
+
+def test_non_launcher_path_does_not_inherit_npx_grant(tmp_path: Path) -> None:
+    identity = _identity()
+    store = GuardStore(tmp_path / "guard-home")
+    _enroll(store, identity, states={"read_file": "allow"})
+    runtime = build_mcp_server_identity(
+        config_path="",
+        command="/usr/bin/node",
+        args=("-y", "@modelcontextprotocol/server-filesystem"),
+        transport="stdio",
+    )
+    artifact = _artifact(runtime, "read_file")
+    assert matching_local_mcp_grant(store=store, artifact=artifact, current_action="review") is None
 
 
 def test_identity_mismatch_does_not_apply(tmp_path: Path) -> None:
