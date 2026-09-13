@@ -7899,6 +7899,7 @@ class GuardDaemonServer:
         self._active_start_generation: int | None = None
         self._finish_service_lock = threading.Lock()
         self._finish_service_completed = False
+        self._serve_thread_error: BaseException | None = None
         self._owner_lock: BinaryIO | None = None
         try:
             self._server = _GuardDaemonHttpServer(
@@ -7970,15 +7971,19 @@ class GuardDaemonServer:
             raise
 
     def serve(self) -> None:
+        self._serve_thread_error = None
         self._begin_service(publish_before_workers=True)
         generation = self._active_start_generation
         serve_thread = self._thread
         try:
             enable_full_capacity_for_generation(self, generation)
-            if serve_thread is not None and serve_thread.is_alive():
-                serve_thread.join()
-            else:
+            if serve_thread is None:
                 self._serve_forever()
+                return
+            serve_thread.join()
+            serve_error = self._serve_thread_error
+            if serve_error is not None:
+                raise serve_error
         except RuntimeError as error:
             if str(error) == "Guard daemon stopped during startup":
                 return
@@ -8083,7 +8088,13 @@ class GuardDaemonServer:
     def refresh_command_queue_worker(self) -> dict[str, object]:
         """Apply changed Cloud connectivity and consent without a daemon restart."""
 
-        with self._finish_service_lock:
+        if not self._finish_service_lock.acquire(blocking=False):
+            return {
+                "operation": "guard.review.resolveExact",
+                "running": False,
+                "sync_running": False,
+            }
+        try:
             self._command_queue_worker, running = refresh_command_queue_worker(
                 self._server.store,
                 self._command_queue_worker,
@@ -8094,6 +8105,8 @@ class GuardDaemonServer:
             self._cloud_review_sync_worker, sync_running = refresh_cloud_review_sync_worker(
                 self._server.store, self._cloud_review_sync_worker, shutting_down=self._shutdown_started.is_set()
             )
+        finally:
+            self._finish_service_lock.release()
         return {
             "operation": "guard.review.resolveExact",
             "running": running,
@@ -8221,8 +8234,9 @@ class GuardDaemonServer:
         except KeyboardInterrupt:
             self._shutdown_started.set()
             stop_reason = "requested_shutdown"
-        except BaseException:
+        except BaseException as error:
             stop_reason = "serve_loop_failed"
+            self._serve_thread_error = error
             self._record_lifecycle("serve_failed", reason="unexpected_exception")
             self._diagnostics.record_exception("daemon_serve_failed")
             raise

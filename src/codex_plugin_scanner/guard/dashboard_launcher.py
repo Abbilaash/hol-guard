@@ -93,7 +93,7 @@ def _desktop_owned_core_executable() -> Path | None:
     if isinstance(raw, str) and raw.strip():
         candidate = Path(raw).expanduser()
         try:
-            if candidate.is_file():
+            if candidate.is_file() and (os.name == "nt" or os.access(candidate, os.X_OK)):
                 return candidate.resolve()
         except OSError:
             return None

@@ -79,6 +79,40 @@ def test_daemon_serve_fast_path_argv_accepts_desktop_launch_shape() -> None:
     assert is_daemon_serve_fast_path_argv(["daemon", "--serve", "--unknown"]) is False
 
 
+def test_daemon_serve_cli_treats_home_as_guard_home_override(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from codex_plugin_scanner.guard.cli import daemon_serve
+
+    captured: dict[str, object] = {}
+    explicit_home = tmp_path / "explicit-home"
+    explicit_home.mkdir()
+
+    class FakeStore:
+        def __init__(self, guard_home: Path, **kwargs: object) -> None:
+            captured["guard_home"] = Path(guard_home)
+            captured["prime"] = kwargs.get("prime_policy_integrity")
+
+    class FakeDaemon:
+        def __init__(self, store: object, **kwargs: object) -> None:
+            captured["home_dir"] = kwargs.get("home_dir")
+
+        def serve(self) -> None:
+            captured["served"] = True
+
+    monkeypatch.setattr("codex_plugin_scanner.guard.store.GuardStore", FakeStore)
+    monkeypatch.setattr("codex_plugin_scanner.guard.daemon.server.GuardDaemonServer", FakeDaemon)
+
+    code = daemon_serve.run_daemon_serve_cli(["daemon", "--serve", "--home", str(explicit_home)])
+
+    assert code == 0
+    assert captured["served"] is True
+    assert captured["prime"] is False
+    assert captured["guard_home"] == explicit_home.resolve()
+    assert captured["home_dir"] == explicit_home.resolve()
+
+
 def test_hol_guard_desktop_bootstrap_json_skips_command_surface(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

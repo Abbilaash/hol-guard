@@ -57,16 +57,13 @@ def run_daemon_serve_cli(argv: Sequence[str] | None = None) -> int:
         print("Choose daemon --serve.", file=sys.stderr)
         return 2
 
-    from ..config import resolve_guard_home, resolve_guard_home_for_user_home
+    from ..config import resolve_guard_home
     from ..daemon.server import GuardDaemonServer
     from ..store import GuardStore
 
-    home_dir = Path(args.home).expanduser() if args.home else Path.home()
-    guard_home = (
-        resolve_guard_home(args.guard_home)
-        if args.guard_home
-        else resolve_guard_home_for_user_home(home_dir)
-    )
+    home_override = args.home
+    home_dir = Path(home_override).expanduser().resolve() if home_override else Path.home().resolve()
+    guard_home = resolve_guard_home(args.guard_home or home_override)
     store = GuardStore(
         guard_home,
         source="default",
