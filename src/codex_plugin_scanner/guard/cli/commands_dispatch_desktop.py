@@ -378,7 +378,10 @@ def _run_guard_desktop_command(
     if desktop_bootstrap_is_preflight():
         session_url = None
     else:
-        session_url = build_desktop_dashboard_session_url(guard_home=resolved_guard_home)
+        session_url = build_desktop_dashboard_session_url(
+            guard_home=resolved_guard_home,
+            home_dir=getattr(context, "home_dir", None),
+        )
     status_payload = importlib.import_module(".product", __package__).build_guard_status_payload(
         context,
         store,
