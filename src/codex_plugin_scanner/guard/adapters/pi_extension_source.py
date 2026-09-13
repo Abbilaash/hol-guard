@@ -122,7 +122,7 @@ def managed_extension_source(
         "function normalizeGuardResponse(value: unknown): GuardResponse | null {\n"
         '  if (!value || typeof value !== "object" || Array.isArray(value)) return null;\n'
         "  const parsed = value as Record<string, unknown>;\n"
-        '  if (parsed.reason !== undefined && parsed.reason !== null && '
+        "  if (parsed.reason !== undefined && parsed.reason !== null && "
         'typeof parsed.reason !== "string") return null;\n'
         '  if (parsed.decision === "allow" || parsed.decision === "deny") {\n'
         "    return parsed as GuardResponse;\n"
@@ -137,7 +137,7 @@ def managed_extension_source(
         "  reasonCode: string,\n"
         "  reason: string,\n"
         "): GuardResponse {\n"
-        "  return { decision: \"deny\", reason, reason_code: reasonCode };\n"
+        '  return { decision: "deny", reason, reason_code: reasonCode };\n'
         "}\n"
         "\n"
         "function daemonResponseCanReturn(\n"
@@ -149,7 +149,7 @@ def managed_extension_source(
         "  if (response.observe_mode === true) return true;\n"
         '  if (response.model_output_action === "replace_with_reviewed_excerpt") return true;\n'
         '  if (response.model_output_action !== "allow_original") return false;\n'
-        "  return typeof response.reviewed_output_sha256 === \"string\" &&\n"
+        '  return typeof response.reviewed_output_sha256 === "string" &&\n'
         "    response.reviewed_output_sha256.length > 0;\n"
         "}\n"
         "\n"
@@ -411,7 +411,7 @@ def managed_extension_source(
         "    try {\n"
         "      const parsed = JSON.parse(lastLine) as unknown;\n"
         "      const normalized = normalizeGuardResponse(parsed);\n"
-        "      if (normalized !== null && (result.status === 0 || normalized.decision === \"deny\")) {\n"
+        '      if (normalized !== null && (result.status === 0 || normalized.decision === "deny")) {\n'
         "        return normalized;\n"
         "      }\n"
         "    } catch {}\n"
@@ -422,7 +422,7 @@ def managed_extension_source(
         '      reason: (result.stderr ?? "").trim() || "Blocked by HOL Guard.",\n'
         "    };\n"
         "  }\n"
-        '  return fallbackGuardResponse(\n'
+        "  return fallbackGuardResponse(\n"
         '    "guard_cli_invalid_response",\n'
         '    "HOL Guard fallback did not return a valid decision. Retry the action.",\n'
         "  );\n"
@@ -657,7 +657,7 @@ def legacy_managed_extension_source(
             "function normalizeGuardResponse(value: unknown): GuardResponse | null {\n"
             '  if (!value || typeof value !== "object" || Array.isArray(value)) return null;\n'
             "  const parsed = value as Record<string, unknown>;\n"
-            '  if (parsed.reason !== undefined && parsed.reason !== null && '
+            "  if (parsed.reason !== undefined && parsed.reason !== null && "
             'typeof parsed.reason !== "string") return null;\n'
             '  if (parsed.decision === "allow" || parsed.decision === "deny") {\n'
             "    return parsed as GuardResponse;\n"
@@ -685,7 +685,7 @@ def legacy_managed_extension_source(
             "  if (response.observe_mode === true) return true;\n"
             '  if (response.model_output_action === "replace_with_reviewed_excerpt") return true;\n'
             '  if (response.model_output_action !== "allow_original") return false;\n'
-            "  return typeof response.reviewed_output_sha256 === \"string\" &&\n"
+            '  return typeof response.reviewed_output_sha256 === "string" &&\n'
             "    response.reviewed_output_sha256.length > 0;\n"
             "}\n\n",
             "",
@@ -700,7 +700,7 @@ def legacy_managed_extension_source(
             "      }\n"
             '      return { response: null, recoveryKind: "transport-failure" };\n'
             "    } catch {}\n",
-            '    if (!raw) return { response: {}, recoveryKind: null };\n'
+            "    if (!raw) return { response: {}, recoveryKind: null };\n"
             "    try {\n"
             "      const parsed = JSON.parse(raw) as GuardResponse;\n"
             "      if (parsed && typeof parsed === 'object') {\n"
@@ -711,7 +711,7 @@ def legacy_managed_extension_source(
         (
             "      const parsed = JSON.parse(lastLine) as unknown;\n"
             "      const normalized = normalizeGuardResponse(parsed);\n"
-            "      if (normalized !== null && (result.status === 0 || normalized.decision === \"deny\")) {\n"
+            '      if (normalized !== null && (result.status === 0 || normalized.decision === "deny")) {\n'
             "        return normalized;\n"
             "      }\n"
             "    } catch {}\n"
@@ -724,7 +724,7 @@ def legacy_managed_extension_source(
             "  if ((result.status ?? 0) !== 0) {\n",
         ),
         (
-            '  return fallbackGuardResponse(\n'
+            "  return fallbackGuardResponse(\n"
             '    "guard_cli_invalid_response",\n'
             '    "HOL Guard fallback did not return a valid decision. Retry the action.",\n'
             "  );\n",
