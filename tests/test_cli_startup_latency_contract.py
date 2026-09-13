@@ -64,6 +64,21 @@ def test_desktop_bootstrap_fast_path_argv_rejects_overrides() -> None:
     assert is_desktop_bootstrap_fast_path_argv(["status"]) is False
 
 
+def test_daemon_serve_fast_path_argv_accepts_desktop_launch_shape() -> None:
+    from codex_plugin_scanner.guard.cli.daemon_serve import is_daemon_serve_fast_path_argv
+
+    assert is_daemon_serve_fast_path_argv(
+        ["daemon", "--serve", "--guard-home", "guard-home", "--home", "home", "--port", "5474"]
+    )
+    assert is_daemon_serve_fast_path_argv(
+        ["guard", "daemon", "--serve", "--guard-home", "guard-home", "--home", "home", "--port", "5474"]
+    )
+    assert is_daemon_serve_fast_path_argv(["daemon", "--serve"]) is True
+    assert is_daemon_serve_fast_path_argv(["daemon", "--serve", "--help"]) is False
+    assert is_daemon_serve_fast_path_argv(["daemon", "status"]) is False
+    assert is_daemon_serve_fast_path_argv(["daemon", "--serve", "--unknown"]) is False
+
+
 def test_hol_guard_desktop_bootstrap_json_skips_command_surface(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -116,6 +131,63 @@ def test_hol_guard_desktop_bootstrap_fast_path_maps_unexpected_errors(
 
     assert code == 1
     assert "desktop bootstrap failed" in captured_err.getvalue()
+
+
+def test_hol_guard_daemon_serve_skips_command_surface(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from codex_plugin_scanner.guard.cli import daemon_serve
+
+    served: list[int] = []
+
+    def fake_serve(argv: list[str]) -> int:
+        served.append(1)
+        assert argv[:2] == ["daemon", "--serve"]
+        return 0
+
+    monkeypatch.setattr(daemon_serve, "run_daemon_serve_cli", fake_serve)
+    monkeypatch.delitem(sys.modules, _COMMANDS_HUB, raising=False)
+    monkeypatch.delitem(sys.modules, _COMMANDS_PARSER, raising=False)
+    monkeypatch.delitem(sys.modules, _COMMANDS_SUPPORT, raising=False)
+    monkeypatch.delitem(sys.modules, _CLI_MODULE, raising=False)
+    monkeypatch.delattr(codex_plugin_scanner, "cli", raising=False)
+
+    previous_argv = sys.argv
+    sys.argv = [
+        "hol-guard",
+        "daemon",
+        "--serve",
+        "--guard-home",
+        str(tmp_path / "guard"),
+        "--home",
+        str(tmp_path / "home"),
+        "--port",
+        "5474",
+    ]
+    try:
+        from codex_plugin_scanner.cli import main
+
+        code = main(
+            [
+                "daemon",
+                "--serve",
+                "--guard-home",
+                str(tmp_path / "guard"),
+                "--home",
+                str(tmp_path / "home"),
+                "--port",
+                "5474",
+            ]
+        )
+    finally:
+        sys.argv = previous_argv
+
+    assert code == 0
+    assert served == [1]
+    assert _COMMANDS_HUB not in sys.modules
+    assert _COMMANDS_PARSER not in sys.modules
+    assert _COMMANDS_SUPPORT not in sys.modules
 
 
 def test_resolve_targets_accepts_multiple_harnesses(tmp_path: Path) -> None:

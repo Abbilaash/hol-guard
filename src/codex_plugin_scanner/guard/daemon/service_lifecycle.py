@@ -25,11 +25,16 @@ def _failed_sqlite_identity(error: BaseException) -> tuple[int, int] | None:
     return None
 
 
-def _begin_owned_service_with_store_recovery(server: GuardDaemonServer, generation: int) -> None:
+def _begin_owned_service_with_store_recovery(
+    server: GuardDaemonServer,
+    generation: int,
+    *,
+    publish_before_workers: bool = False,
+) -> None:
     """Retry owned startup once after a fatal SQLite store is quarantined."""
 
     try:
-        server._begin_owned_service(generation)
+        server._begin_owned_service(generation, publish_before_workers=publish_before_workers)
     except sqlite3.DatabaseError as error:
         store = server._server.store
         if not store._recover_fatal_sqlite_store(
@@ -37,7 +42,7 @@ def _begin_owned_service_with_store_recovery(server: GuardDaemonServer, generati
             failed_identity=_failed_sqlite_identity(error),
         ):
             raise
-        server._begin_owned_service(generation)
+        server._begin_owned_service(generation, publish_before_workers=publish_before_workers)
 
 
 def _preflight_existing_service_workers(server: GuardDaemonServer) -> None:
@@ -50,7 +55,7 @@ def _preflight_existing_service_workers(server: GuardDaemonServer) -> None:
     server._require_command_activity_maintenance_stopped()
 
 
-def begin_service(server: GuardDaemonServer) -> None:
+def begin_service(server: GuardDaemonServer, *, publish_before_workers: bool = False) -> None:
     """Claim ownership and initialize background services for one generation."""
 
     from .manager import acquire_guard_daemon_owner_lock
@@ -75,26 +80,43 @@ def begin_service(server: GuardDaemonServer) -> None:
             if not startup_generation_is_current(server, generation):
                 raise RuntimeError("Guard daemon stopped during startup")
             server._owner_lock = acquire_guard_daemon_owner_lock(server._server.store.guard_home)
-            _begin_owned_service_with_store_recovery(server, generation)
+            _begin_owned_service_with_store_recovery(
+                server,
+                generation,
+                publish_before_workers=publish_before_workers,
+            )
     except BaseException as error:
         server._diagnostics.record_exception("daemon_start_failed")
         server._record_lifecycle("start_failed", reason="initialization_failed")
+        serve_thread = server._thread
+        if serve_thread is not None:
+            server._server.request_serve_stop()
         if not server._finish_service():
             add_note = getattr(error, "add_note", None)
             if callable(add_note):
                 add_note("Guard retained daemon ownership because partial-start containment was unconfirmed.")
+        if serve_thread is not None:
+            server._join_service_thread(serve_thread, deadline=time.monotonic() + 5)
         raise
 
 
-def start_serve_thread(server: GuardDaemonServer) -> None:
+def start_serve_thread(server: GuardDaemonServer, *, already_locked: bool = False) -> None:
     """Start the HTTP serve loop while holding the service ownership lock."""
 
-    with server._finish_service_lock:
+    def start_locked() -> None:
         if server._shutdown_started.is_set():
             raise RuntimeError("Guard daemon stopped during startup")
+        if server._thread is not None and server._thread.is_alive():
+            return
         server._serve_loop_started.clear()
         server._thread = threading.Thread(target=server._serve_forever, daemon=True)
         server._thread.start()
+
+    if already_locked:
+        start_locked()
+        return
+    with server._finish_service_lock:
+        start_locked()
 
 
 def enable_full_capacity_for_generation(server: GuardDaemonServer, generation: int | None) -> None:

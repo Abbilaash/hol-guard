@@ -7970,16 +7970,29 @@ class GuardDaemonServer:
             raise
 
     def serve(self) -> None:
-        self._begin_service()
+        self._begin_service(publish_before_workers=True)
         generation = self._active_start_generation
+        serve_thread = self._thread
         try:
             enable_full_capacity_for_generation(self, generation)
-            self._serve_forever()
+            if serve_thread is not None and serve_thread.is_alive():
+                serve_thread.join()
+            else:
+                self._serve_forever()
+        except RuntimeError as error:
+            if str(error) == "Guard daemon stopped during startup":
+                return
+            contain_failed_service_start(
+                self,
+                error,
+                serve_thread_started=serve_thread is not None,
+            )
+            raise
         except BaseException as error:
             contain_failed_service_start(
                 self,
                 error,
-                serve_thread_started=False,
+                serve_thread_started=serve_thread is not None,
             )
             raise
 
@@ -8001,10 +8014,26 @@ class GuardDaemonServer:
         ):
             self._thread = None
 
-    def _begin_service(self) -> None:
-        begin_service(self)
+    def _begin_service(self, *, publish_before_workers: bool = False) -> None:
+        begin_service(self, publish_before_workers=publish_before_workers)
 
-    def _begin_owned_service(self, generation: int | None = None) -> None:
+    def _publish_listen_state(self) -> None:
+        self._server.last_activity_monotonic = time.monotonic()
+        self._server.publish_trust_state()
+        self._server.store.upsert_runtime_state(
+            session_id=self._server.runtime_session_id,
+            daemon_host=self._server.runtime_host,
+            daemon_port=self.port,
+            started_at=self._server.runtime_started_at,
+            last_heartbeat_at=_now(),
+        )
+
+    def _begin_owned_service(
+        self,
+        generation: int | None = None,
+        *,
+        publish_before_workers: bool = False,
+    ) -> None:
         generation = generation if generation is not None else self._active_start_generation
         with self._lifecycle_lock:
             if generation != self._lifecycle_generation or self._shutdown_started.is_set():
@@ -8015,19 +8044,23 @@ class GuardDaemonServer:
             self._aibom_refresh_thread = None
         self._require_command_activity_maintenance_stopped()
         self._server.hook_process_runner.start(defer_backfill=True)
+        if publish_before_workers:
+            # Desktop `desktop bootstrap --json` waits for the daemon state
+            # file, not for hook workers or artifact reconciliation. Accept
+            # HTTP and publish that file before the 60s+ cold-home work.
+            start_serve_thread(self, already_locked=True)
+            if not self._serve_loop_started.wait(timeout=_DAEMON_SERVE_THREAD_START_TIMEOUT_SECONDS):
+                raise RuntimeError("Guard daemon serve thread did not become ready")
+            self._publish_listen_state()
+            self._diagnostics.record("daemon_listen_ready")
         self._server.hook_process_runner.require_initial_capacity()
         self._reconcile_runtime_artifacts_best_effort()
         self._maintain_command_activity_best_effort()
         self._persist_aibom_inventory_context()
-        self._server.last_activity_monotonic = time.monotonic()
-        self._server.publish_trust_state()
-        self._server.store.upsert_runtime_state(
-            session_id=self._server.runtime_session_id,
-            daemon_host=self._server.runtime_host,
-            daemon_port=self.port,
-            started_at=self._server.runtime_started_at,
-            last_heartbeat_at=_now(),
-        )
+        if not publish_before_workers:
+            self._publish_listen_state()
+        else:
+            self._server.last_activity_monotonic = time.monotonic()
         self._server.start_unclassified_watchdog()
         self._server.runtime_heartbeat.start()
         approval_attention = getattr(self._server, "approval_attention", None)
@@ -8068,7 +8101,7 @@ class GuardDaemonServer:
         }
 
     def _reconcile_runtime_artifacts_best_effort(self) -> None:
-        """Align existing Guard-owned artifacts before publishing readiness."""
+        """Align existing Guard-owned artifacts before reporting daemon_ready."""
         try:
             result = reconcile_runtime_artifacts(
                 self._server.store,
