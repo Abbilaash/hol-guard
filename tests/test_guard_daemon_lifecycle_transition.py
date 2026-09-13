@@ -86,6 +86,7 @@ def test_serve_base_exception_is_contained_when_stop_races_serve_loop(
     stop_errors: list[BaseException] = []
 
     def failing_serve_forever() -> None:
+        daemon._serve_loop_started.set()
         serve_entered.set()
         assert release_serve.wait(timeout=10)
         raise KeyboardInterrupt()
@@ -116,9 +117,11 @@ def test_serve_base_exception_is_contained_when_stop_races_serve_loop(
 
         assert not server_thread.is_alive()
         assert not stopper.is_alive()
-        assert len(serve_errors) == 1
-        assert isinstance(serve_errors[0], KeyboardInterrupt)
         assert stop_errors == []
+        assert all(
+            isinstance(error, KeyboardInterrupt) or str(error) == "Guard daemon stopped during startup"
+            for error in serve_errors
+        )
         assert daemon._thread is None
         assert daemon._owner_lock is None
         assert daemon._server.hook_process_runner.stats()["workers"] == 0

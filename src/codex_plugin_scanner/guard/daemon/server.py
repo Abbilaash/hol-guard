@@ -284,6 +284,7 @@ from .service_lifecycle import (
     contain_failed_service_start,
     enable_full_capacity_for_generation,
     start_serve_thread,
+    startup_generation_is_current,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -8043,6 +8044,7 @@ class GuardDaemonServer:
         generation: int | None = None,
         *,
         publish_before_workers: bool = False,
+        continue_after_listen: bool = True,
     ) -> None:
         generation = generation if generation is not None else self._active_start_generation
         with self._lifecycle_lock:
@@ -8063,14 +8065,20 @@ class GuardDaemonServer:
                 raise RuntimeError("Guard daemon serve thread did not become ready")
             self._publish_listen_state()
             self._diagnostics.record("daemon_listen_ready")
+            if not continue_after_listen:
+                return
+        self._complete_owned_service_after_listen(generation)
+
+    def _complete_owned_service_after_listen(self, generation: int | None) -> None:
+        if not startup_generation_is_current(self, generation):
+            raise RuntimeError("Guard daemon stopped during startup")
         self._server.hook_process_runner.require_initial_capacity()
         self._reconcile_runtime_artifacts_best_effort()
         self._maintain_command_activity_best_effort()
         self._persist_aibom_inventory_context()
-        if not publish_before_workers:
-            self._publish_listen_state()
-        else:
-            self._server.last_activity_monotonic = time.monotonic()
+        if generation is not None and not startup_generation_is_current(self, generation):
+            raise RuntimeError("Guard daemon stopped during startup")
+        self._publish_listen_state()
         self._server.start_unclassified_watchdog()
         self._server.runtime_heartbeat.start()
         approval_attention = getattr(self._server, "approval_attention", None)
