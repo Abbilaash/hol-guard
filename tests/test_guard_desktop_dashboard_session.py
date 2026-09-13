@@ -44,6 +44,7 @@ def test_desktop_bootstrap_uses_canonical_dashboard_session_builder() -> None:
     assert "build_desktop_dashboard_session_url" in source
     assert 'dashboard["sessionUrl"]' in source
     assert 'dashboard["canonical"] = True' in source
+    assert "scan_installed_apps=False" in source
     assert source.index("session_url = build_desktop_dashboard_session_url") < source.index(
         "build_guard_status_payload"
     )
@@ -52,6 +53,7 @@ def test_desktop_bootstrap_uses_canonical_dashboard_session_builder() -> None:
 def test_desktop_bootstrap_aligns_runtime_before_projecting_protection(monkeypatch, tmp_path: Path) -> None:
     runtime_ready = {"value": False}
     call_order: list[str] = []
+    captured: dict[str, object] = {}
 
     def fake_session_url(*, guard_home: Path) -> str:
         del guard_home
@@ -59,8 +61,9 @@ def test_desktop_bootstrap_aligns_runtime_before_projecting_protection(monkeypat
         runtime_ready["value"] = True
         return "http://127.0.0.1:43123/?desktop_embed=1#guard-token=gld1.test"
 
-    def fake_status(_context: object, _store: object, _config: object) -> dict[str, object]:
+    def fake_status(_context: object, _store: object, _config: object, **kwargs: object) -> dict[str, object]:
         call_order.append("status")
+        captured["scan_installed_apps"] = kwargs.get("scan_installed_apps")
         return {
             "runtime_status": "active" if runtime_ready["value"] else "offline",
             "managed_harnesses": 1,
@@ -110,6 +113,7 @@ def test_desktop_bootstrap_aligns_runtime_before_projecting_protection(monkeypat
     payload = json.loads(output.getvalue())
     assert result == 0
     assert call_order == ["session", "status"]
+    assert captured["scan_installed_apps"] is False
     assert payload["status"] == "ready"
     assert payload["protection"]["state"] == "protected"
     assert payload["apps"][0]["protection"] == "protected"
@@ -126,7 +130,7 @@ def test_desktop_preflight_skips_daemon_session(monkeypatch, tmp_path: Path) -> 
     monkeypatch.setattr(commands_dispatch_desktop, "build_desktop_dashboard_session_url", fail_session)
     monkeypatch.setattr(
         "codex_plugin_scanner.guard.cli.product.build_guard_status_payload",
-        lambda _context, _store, _config: {
+        lambda _context, _store, _config, **_kwargs: {
             "runtime_status": "offline",
             "managed_harnesses": 0,
             "receipt_count": 0,
@@ -167,3 +171,76 @@ def test_desktop_preflight_refuses_session_url_builder(monkeypatch, tmp_path: Pa
     monkeypatch.setenv("HOL_GUARD_DESKTOP_PREFLIGHT", "1")
     with pytest.raises(RuntimeError, match="does not start a local daemon"):
         dashboard_launcher.build_desktop_dashboard_session_url(guard_home=tmp_path)
+
+
+def test_status_payload_skips_installed_app_scan_when_requested(monkeypatch, tmp_path: Path) -> None:
+    from codex_plugin_scanner.guard.adapters.base import HarnessContext
+    from codex_plugin_scanner.guard.cli import product
+    from codex_plugin_scanner.guard.config import GuardConfig
+    from codex_plugin_scanner.guard.store import GuardStore
+
+    home_dir = tmp_path / "home"
+    workspace = tmp_path / "workspace"
+    guard_home = tmp_path / "guard-home"
+    home_dir.mkdir()
+    workspace.mkdir()
+    store = GuardStore(guard_home)
+    store.set_managed_install(
+        "codex",
+        True,
+        str(workspace),
+        {"shim_path": str(guard_home / "shims" / "codex")},
+        "2026-09-12T00:00:00+00:00",
+    )
+    context = HarnessContext(home_dir=home_dir, workspace_dir=workspace, guard_home=guard_home)
+    config = GuardConfig(guard_home=guard_home, workspace=workspace)
+
+    def fail_detect(_context: object) -> None:
+        raise AssertionError("status payload must not scan installed apps")
+
+    monkeypatch.setattr(product, "detect_all", fail_detect)
+
+    payload = product.build_guard_status_payload(context, store, config, scan_installed_apps=False)
+    harnesses = payload["harnesses"]
+    assert isinstance(harnesses, list)
+    assert payload["managed_harnesses"] == 1
+    assert harnesses[0]["harness"] == "codex"
+    assert harnesses[0]["managed"] is True
+    assert harnesses[0]["review_count"] == 0
+    assert harnesses[0]["installed"] is True
+
+
+def test_status_payload_still_scans_installed_apps_by_default(monkeypatch, tmp_path: Path) -> None:
+    from codex_plugin_scanner.guard.adapters.base import HarnessContext
+    from codex_plugin_scanner.guard.cli import product
+    from codex_plugin_scanner.guard.config import GuardConfig
+    from codex_plugin_scanner.guard.models import HarnessDetection
+    from codex_plugin_scanner.guard.store import GuardStore
+
+    scanned = {"called": False}
+    home_dir = tmp_path / "home"
+    workspace = tmp_path / "workspace"
+    guard_home = tmp_path / "guard-home"
+    home_dir.mkdir()
+    workspace.mkdir()
+    context = HarnessContext(home_dir=home_dir, workspace_dir=workspace, guard_home=guard_home)
+    store = GuardStore(guard_home)
+    config = GuardConfig(guard_home=guard_home, workspace=workspace)
+
+    def fake_detect(_context: object) -> list[HarnessDetection]:
+        scanned["called"] = True
+        return [
+            HarnessDetection(
+                harness="codex",
+                installed=True,
+                command_available=True,
+                config_paths=(),
+                artifacts=(),
+            )
+        ]
+
+    monkeypatch.setattr(product, "detect_all", fake_detect)
+
+    payload = product.build_guard_status_payload(context, store, config)
+    assert scanned["called"] is True
+    assert payload["harnesses"][0]["harness"] == "codex"

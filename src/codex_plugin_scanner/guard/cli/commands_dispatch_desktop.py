@@ -383,6 +383,7 @@ def _run_guard_desktop_command(
         context,
         store,
         config,
+        scan_installed_apps=False,
     )
     now = datetime.now(timezone.utc)
     day_start = datetime.combine(now.date(), datetime.min.time(), tzinfo=timezone.utc)
