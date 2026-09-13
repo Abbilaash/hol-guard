@@ -352,3 +352,42 @@ def test_command_queue_refresh_does_not_block_while_startup_holds_lifecycle_lock
         daemon._finish_service_lock.release()
     assert result["running"] is False
     assert result["sync_running"] is False
+
+
+def test_serve_enables_full_capacity_on_the_caller_thread(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = GuardStore(tmp_path / "guard-home", prime_policy_integrity=False)
+    daemon = GuardDaemonServer(store, host="127.0.0.1", port=0, idle_timeout_seconds=0)
+    monkeypatch.setattr(daemon._server.hook_process_runner, "require_initial_capacity", lambda: None)
+    monkeypatch.setattr(
+        daemon_server_module,
+        "reconcile_runtime_artifacts",
+        lambda _store, *, home_dir=None: RuntimeArtifactReconciliation(
+            refreshed_launchers=(),
+            repaired_harnesses=(),
+            repaired_package_managers=(),
+            failed_harnesses=(),
+            errors=(),
+        ),
+    )
+
+    def stop_after_ready() -> None:
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            if load_guard_daemon_url(store.guard_home) and daemon._owned_service_ready:
+                break
+            time.sleep(0.05)
+        daemon.stop()
+
+    stopper = threading.Thread(target=stop_after_ready, name="stop-serve-after-ready", daemon=True)
+    stopper.start()
+    try:
+        daemon.serve()
+    finally:
+        daemon.stop()
+        stopper.join(timeout=8)
+    assert stopper.is_alive() is False
+    assert daemon._owned_service_ready is False
+    assert daemon._owner_lock is None
