@@ -14,7 +14,9 @@ from pathlib import Path
 import pytest
 
 from codex_plugin_scanner.cli import main
+from codex_plugin_scanner.guard.adapters import pi_extension_source
 from codex_plugin_scanner.guard.adapters.base import HarnessContext
+from codex_plugin_scanner.guard.adapters.pi_extension_runtime_ownership import PiExtensionRuntimeOwnership
 from codex_plugin_scanner.guard.adapters.pi_extension_source import legacy_managed_extension_source
 from codex_plugin_scanner.guard.cli import update_commands
 from codex_plugin_scanner.guard.cli.commands import (
@@ -140,10 +142,42 @@ def test_install_omp_preserves_legacy_pi_record(
     assert store.get_managed_install("omp") is not None
 
 
-def test_legacy_omp_source_matches_pre_response_contract_snapshot() -> None:
+def test_legacy_omp_source_matches_pre_response_contract_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:
+    guard_home = Path("/omp-snapshot/guard-home")
+    home_dir = Path("/omp-snapshot/home")
+    monkeypatch.setattr(
+        pi_extension_source,
+        "resolve_pi_extension_runtime_ownership",
+        lambda **_: PiExtensionRuntimeOwnership(
+            guard_args=("hook", "--json", "--guard-home", str(guard_home), "--harness", "pi", "--home", str(home_dir)),
+            cli_command="/snapshot/bin/hol-guard",
+            cli_args=(
+                "hook",
+                "--json",
+                "--guard-home",
+                str(guard_home),
+                "--harness",
+                "pi",
+                "--home",
+                str(home_dir),
+            ),
+            cli_accepts_json_args=False,
+            recovery_command="/snapshot/bin/hol-guard",
+            recovery_args=(
+                "daemon",
+                "recover",
+                "--guard-home",
+                str(guard_home),
+                "--home",
+                str(home_dir),
+            ),
+            recovery_accepts_failure_kind=True,
+        ),
+    )
+    monkeypatch.setattr(pi_extension_source, "windows_system_executable_path", lambda _: None)
     source = legacy_managed_extension_source(
-        guard_home=Path("/omp-snapshot/guard-home"),
-        home_dir=Path("/omp-snapshot/home"),
+        guard_home=guard_home,
+        home_dir=home_dir,
         settings_path=Path("/omp-snapshot/home/.omp/agent/settings.json"),
         harness="pi",
     )

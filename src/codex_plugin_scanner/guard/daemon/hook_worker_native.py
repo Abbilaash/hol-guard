@@ -58,8 +58,8 @@ def _recording_only_output_sha256(payload: Mapping[str, object]) -> str | None:
         if digest is not None:
             return digest
         # A summary can contain only a bounded excerpt. Never treat it as the
-        # complete output when its canonical full-output proof is absent.
-        return None
+        # complete output when its canonical full-output proof is absent. If a
+        # complete inline payload is also present, fall through and prove it.
 
     # Pi's legacy inline payload carries the complete output under
     # ``tool_response``. Keep the extraction isolated from other fields such
@@ -81,6 +81,8 @@ def _watch_native_post_tool_result(
     if rewritten.get("decision") == "allow" and rewritten.get("model_output_action") == "allow_original":
         if digest is not None:
             rewritten["reviewed_output_sha256"] = digest
+        else:
+            rewritten.pop("reviewed_output_sha256", None)
         return rewritten
     rewritten["decision"] = "allow"
     rewritten["model_output_action"] = "allow_original"

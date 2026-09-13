@@ -59,6 +59,28 @@ def test_inherited_excerpt_digest_is_removed_during_allow_original_rewrite() -> 
     assert "reviewed_output_sha256" not in result
 
 
+def test_inherited_excerpt_digest_is_removed_from_existing_allow_response() -> None:
+    payload = {
+        "stdout": "bounded excerpt",
+        "tool_response_summary": {
+            "text_excerpt": "bounded excerpt",
+            "excerpt_truncated": True,
+        },
+    }
+    native = {
+        "decision": "allow",
+        "model_output_action": "allow_original",
+        "policy_action": "warn",
+        "reviewed_output_sha256": sha256_text("bounded excerpt"),
+    }
+
+    result = _watch_native_post_tool_result(native, payload)
+
+    assert result["decision"] == "allow"
+    assert result["model_output_action"] == "allow_original"
+    assert "reviewed_output_sha256" not in result
+
+
 def test_stale_allow_original_uses_canonical_inline_proof() -> None:
     content = "canonical inline output"
     native = {
@@ -70,6 +92,18 @@ def test_stale_allow_original_uses_canonical_inline_proof() -> None:
     payload = {"tool_response": [{"type": "text", "text": content}]}
 
     result = _watch_native_post_tool_result(native, payload)
+
+    assert result["reviewed_output_sha256"] == sha256_text(content)
+
+
+def test_summary_without_digest_falls_back_to_complete_inline_output() -> None:
+    content = "complete inline output"
+    payload = {
+        "tool_response_summary": {"text_excerpt": "bounded excerpt"},
+        "tool_response": [{"type": "text", "text": content}],
+    }
+
+    result = _watch_native_post_tool_result(_native_deny(), payload)
 
     assert result["reviewed_output_sha256"] == sha256_text(content)
 
