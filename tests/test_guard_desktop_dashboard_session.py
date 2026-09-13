@@ -13,20 +13,27 @@ from codex_plugin_scanner.guard import dashboard_launcher
 from codex_plugin_scanner.guard.cli import commands_dispatch_desktop
 
 
-def test_desktop_dashboard_session_is_scoped_fragment_token(monkeypatch) -> None:
+def test_desktop_dashboard_session_is_scoped_fragment_token(monkeypatch, tmp_path: Path) -> None:
     raw_daemon_token = "daemon-secret-that-must-not-cross-the-desktop-boundary"
-    monkeypatch.setattr(
-        dashboard_launcher,
-        "ensure_guard_daemon",
-        lambda _guard_home, **_kwargs: "http://127.0.0.1:43123/",
-    )
+    captured: dict[str, object] = {}
+    guard_home = tmp_path / "guard-home"
+
+    def fake_ensure_guard_daemon(received_home: Path, **kwargs: object) -> str:
+        captured["guard_home"] = received_home
+        captured.update(kwargs)
+        return "http://127.0.0.1:43123/"
+
+    monkeypatch.setattr(dashboard_launcher, "ensure_guard_daemon", fake_ensure_guard_daemon)
     monkeypatch.setattr(
         dashboard_launcher,
         "load_guard_daemon_auth_token",
         lambda _guard_home: raw_daemon_token,
     )
 
-    url = dashboard_launcher.build_desktop_dashboard_session_url(guard_home=__import__("pathlib").Path("/tmp/guard"))
+    url = dashboard_launcher.build_desktop_dashboard_session_url(guard_home=guard_home)
+    assert captured["guard_home"] == guard_home
+    assert captured["home_dir"] is None
+    assert "executable" in captured
     parsed = urlparse(url)
     fragment = parse_qs(parsed.fragment)
 

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 import threading
 import time
 from typing import TYPE_CHECKING
+
+_LOGGER = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .server import GuardDaemonServer
@@ -119,9 +122,18 @@ def begin_service(server: GuardDaemonServer, *, publish_before_workers: bool = F
         server._diagnostics.record_exception("daemon_start_failed")
         server._record_lifecycle("start_failed", reason="initialization_failed")
         serve_thread = server._thread
+        leftover_serve_thread = None
         if serve_thread is not None:
             server._server.request_serve_stop()
-            server._join_service_thread(serve_thread, deadline=time.monotonic() + 5)
+            leftover_serve_thread = server._join_service_thread(
+                serve_thread,
+                deadline=time.monotonic() + 5,
+            )
+        if leftover_serve_thread is not None:
+            add_note = getattr(error, "add_note", None)
+            if callable(add_note):
+                add_note("Guard retained daemon ownership because the serve thread did not exit.")
+            raise
         if not server._finish_service():
             add_note = getattr(error, "add_note", None)
             if callable(add_note):
@@ -139,6 +151,8 @@ def start_serve_thread(server: GuardDaemonServer, *, already_locked: bool = Fals
             except BaseException as error:
                 if server._serve_thread_error is None:
                     server._serve_thread_error = error
+                if not isinstance(error, (KeyboardInterrupt, SystemExit)):
+                    _LOGGER.exception("Guard daemon serve thread failed")
 
         if server._shutdown_started.is_set():
             raise RuntimeError("Guard daemon stopped during startup")

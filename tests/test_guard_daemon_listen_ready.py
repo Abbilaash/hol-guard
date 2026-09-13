@@ -78,6 +78,55 @@ def test_daemon_serve_publishes_listen_state_before_artifact_reconciliation(
         assert worker.is_alive() is False
 
 
+def test_serve_stop_during_reconcile_does_not_leave_background_workers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = GuardStore(tmp_path / "guard-home", prime_policy_integrity=False)
+    reconcile_started = threading.Event()
+    release_reconcile = threading.Event()
+
+    def reconcile(
+        _store: GuardStore,
+        *,
+        home_dir: Path | None = None,
+    ) -> RuntimeArtifactReconciliation:
+        del home_dir
+        reconcile_started.set()
+        assert release_reconcile.wait(timeout=8)
+        return RuntimeArtifactReconciliation(
+            refreshed_launchers=(),
+            repaired_harnesses=(),
+            repaired_package_managers=(),
+            failed_harnesses=(),
+            errors=(),
+        )
+
+    monkeypatch.setattr(daemon_server_module, "reconcile_runtime_artifacts", reconcile)
+    daemon = GuardDaemonServer(store, host="127.0.0.1", port=0, idle_timeout_seconds=0)
+    monkeypatch.setattr(daemon._server.hook_process_runner, "require_initial_capacity", lambda: None)
+
+    worker = threading.Thread(target=daemon.serve, name="guard-daemon-stop-during-reconcile", daemon=True)
+    worker.start()
+    try:
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            if load_guard_daemon_url(store.guard_home):
+                break
+            time.sleep(0.05)
+        assert reconcile_started.wait(timeout=8)
+        daemon.stop()
+        assert daemon._command_queue_worker is None
+        assert daemon._server.hook_process_runner.stats()["workers"] == 0
+    finally:
+        release_reconcile.set()
+        daemon.stop()
+        worker.join(timeout=8)
+        assert worker.is_alive() is False
+        assert daemon._command_queue_worker is None
+        assert daemon._owner_lock is None
+
+
 def test_desktop_owned_core_executable_prefers_runtime_owner(monkeypatch, tmp_path: Path) -> None:
     from codex_plugin_scanner.guard.dashboard_launcher import _desktop_owned_core_executable
 

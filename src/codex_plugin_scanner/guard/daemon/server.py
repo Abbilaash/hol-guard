@@ -8067,36 +8067,49 @@ class GuardDaemonServer:
             self._diagnostics.record("daemon_listen_ready")
             if not continue_after_listen:
                 return
-        self._complete_owned_service_after_listen(generation)
+        self._complete_owned_service_after_listen(generation, already_locked=True)
 
-    def _complete_owned_service_after_listen(self, generation: int | None) -> None:
+    def _complete_owned_service_after_listen(
+        self,
+        generation: int | None,
+        *,
+        already_locked: bool = False,
+    ) -> None:
         if not startup_generation_is_current(self, generation):
             raise RuntimeError("Guard daemon stopped during startup")
         self._server.hook_process_runner.require_initial_capacity()
         self._reconcile_runtime_artifacts_best_effort()
         self._maintain_command_activity_best_effort()
         self._persist_aibom_inventory_context()
-        if generation is not None and not startup_generation_is_current(self, generation):
-            raise RuntimeError("Guard daemon stopped during startup")
-        self._publish_listen_state()
-        self._server.start_unclassified_watchdog()
-        self._server.runtime_heartbeat.start()
-        approval_attention = getattr(self._server, "approval_attention", None)
-        if approval_attention is not None:
-            approval_attention.start()
-        self._start_watchdog()
-        self._start_headless_cloud_sync()
-        self._start_supply_chain_bundle_refresh()
-        self._start_aibom_inventory_refresh()
-        self._start_extension_control_refresh()
-        self._command_queue_worker = start_command_queue_worker(self._server.store, self._command_queue_worker)
-        self._cloud_review_sync_worker = start_cloud_sync_sync_worker(
-            self._server.store,
-            self._cloud_review_sync_worker,
-        )
-        self._start_command_activity_maintenance()
-        self._record_lifecycle("ready")
-        self._diagnostics.record("daemon_ready")
+
+        def start_post_listen_workers() -> None:
+            if generation is not None and not startup_generation_is_current(self, generation):
+                raise RuntimeError("Guard daemon stopped during startup")
+            self._publish_listen_state()
+            self._server.start_unclassified_watchdog()
+            self._server.runtime_heartbeat.start()
+            approval_attention = getattr(self._server, "approval_attention", None)
+            if approval_attention is not None:
+                approval_attention.start()
+            self._start_watchdog()
+            self._start_headless_cloud_sync()
+            self._start_supply_chain_bundle_refresh()
+            self._start_aibom_inventory_refresh()
+            self._start_extension_control_refresh()
+            self._command_queue_worker = start_command_queue_worker(self._server.store, self._command_queue_worker)
+            self._cloud_review_sync_worker = start_cloud_sync_sync_worker(
+                self._server.store,
+                self._cloud_review_sync_worker,
+            )
+            self._start_command_activity_maintenance()
+            self._record_lifecycle("ready")
+            self._diagnostics.record("daemon_ready")
+
+        if already_locked:
+            start_post_listen_workers()
+            return
+        with self._finish_service_lock:
+            start_post_listen_workers()
 
     def refresh_command_queue_worker(self) -> dict[str, object]:
         """Apply changed Cloud connectivity and consent without a daemon restart."""

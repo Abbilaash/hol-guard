@@ -47,7 +47,7 @@ class _FakeServer:
             raise error
         assert generation == 1
 
-    def _complete_owned_service_after_listen(self, generation: int) -> None:
+    def _complete_owned_service_after_listen(self, generation: int, **_kwargs: object) -> None:
         self.starts += 1
         if self.starts == 1:
             error = sqlite3.DatabaseError("database disk image is malformed")
