@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from contextlib import suppress
+from hashlib import sha256
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
@@ -13,7 +14,6 @@ from ..native_route_receipt import record_python_semantic_hook_route
 from ..native_runtime import NativeRuntimeStatus
 from ..runtime.hook_output_text import extract_payload_output
 from ..runtime.hook_review_types import HookReviewRequest, HookReviewResponse
-from ..runtime.hook_source_read import sha256_text
 from .hook_availability_policy import (
     availability_harness_response,
     hook_review_is_recording_only,
@@ -69,7 +69,7 @@ def _recording_only_output_sha256(payload: Mapping[str, object]) -> str | None:
     extracted = extract_payload_output({"tool_response": payload["tool_response"]})
     if extracted.truncated:
         return None
-    return sha256_text(extracted.text)
+    return sha256(extracted.text.encode("utf-8")).hexdigest()
 
 
 def _watch_native_post_tool_result(
