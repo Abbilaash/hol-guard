@@ -408,6 +408,17 @@ def main(argv: list[str] | None = None) -> int:
         # hook wrappers probe it while a tool waits.
         print(f"{program_name} {__version__}")
         return 0
+    if program_mode in {"guard", "hol-guard"}:
+        from .guard.cli.desktop_bootstrap import (
+            is_desktop_bootstrap_fast_path_argv,
+            run_desktop_bootstrap_cli,
+        )
+
+        if is_desktop_bootstrap_fast_path_argv(requested_argv):
+            # Fast path: Desktop warmup always invokes `desktop bootstrap --json`.
+            # Building the full Guard parser (MDM, cloud, policy, extensions)
+            # dominates that spawn; home overrides still use argparse.
+            return run_desktop_bootstrap_cli()
     parser = _build_parser(program_name, program_mode=program_mode)
     resolved_argv = _resolve_legacy_args(
         requested_argv,
