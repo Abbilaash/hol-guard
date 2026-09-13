@@ -189,23 +189,36 @@ def _summarize_managed_install(install: dict[str, object], home_dir: Path) -> di
     manifest = install.get("manifest")
     shim_path = manifest.get("shim_path") if isinstance(manifest, dict) else None
     approval_flow = adapter.approval_flow(managed_install=install)
+    warning_count = _managed_install_warning_count(managed=managed, manifest=manifest if isinstance(manifest, dict) else None)
     return {
         "harness": harness,
-        "installed": True,
-        "command_available": True,
+        "installed": managed,
+        "command_available": managed,
         "artifact_count": 0,
         "review_count": 0,
-        "warning_count": 0,
+        "warning_count": warning_count,
         "managed": managed,
         "shim_path": _redacted_path(shim_path, home_dir) if isinstance(shim_path, str) else None,
         "config_paths": [],
-        "next_action": "run" if managed else "install",
+        "next_action": "run" if managed and warning_count == 0 else "install" if not managed else "review",
         "install_command": f"{GUARD_COMMAND} install {harness}",
         "run_command": f"{GUARD_COMMAND} run {harness} --dry-run",
         "review_command": f"{GUARD_COMMAND} diff {harness}",
         "receipts_command": f"{GUARD_COMMAND} receipts",
         "approval_flow": approval_flow,
     }
+
+
+def _managed_install_warning_count(*, managed: bool, manifest: dict[str, object] | None) -> int:
+    if not managed or manifest is None:
+        return 0
+    for key in ("shim_path", "windows_shim_path", "config_path", "root_path", "settings_path"):
+        candidate = manifest.get(key)
+        if not isinstance(candidate, str) or not candidate.strip():
+            continue
+        if not Path(candidate).expanduser().exists():
+            return 1
+    return 0
 
 
 def _count_review_artifacts(store: GuardStore, artifacts: tuple[GuardArtifact, ...], harness: str) -> int:
