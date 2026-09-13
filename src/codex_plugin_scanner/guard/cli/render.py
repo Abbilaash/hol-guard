@@ -307,7 +307,7 @@ def _protect_guidance_lines(payload: PayloadDict) -> list[str]:
         lines.append(f"Next step: {next_step}")
 
     dashboard_url = str(payload.get("primary_approval_url") or user_copy_map.get("dashboard_url") or "").strip()
-    if dashboard_url and dashboard_url not in harness_message:
+    if dashboard_url and not any(dashboard_url in line for line in lines):
         lines.append(f"Review: {dashboard_url}")
 
     return lines

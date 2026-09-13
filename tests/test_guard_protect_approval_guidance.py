@@ -76,6 +76,21 @@ def test_protect_guidance_prefers_the_current_queued_request(
     assert payload["executed"] is False
 
 
+@pytest.mark.parametrize("rich_available", [True, False])
+def test_protect_guidance_deduplicates_approval_url_in_next_step(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, rich_available: bool
+) -> None:
+    payload = _pending_package_payload()
+    approval_url = "http://127.0.0.1:5474/requests/package-review"
+    payload["primary_approval_url"] = approval_url
+    payload["supply_chain_evaluation"]["user_copy"].update(next_step=f"Open {approval_url}", dashboard_url=approval_url)
+    monkeypatch.setattr(render, "_RICH_AVAILABLE", rich_available)
+
+    render.emit_guard_payload("protect", payload, False)
+
+    assert capsys.readouterr().out.count(approval_url) == 1
+
+
 def _pending_package_payload() -> dict[str, object]:
     return {
         "executed": False,
@@ -112,7 +127,9 @@ def _pending_package_payload() -> dict[str, object]:
 
 
 @pytest.mark.parametrize("rich_available", [True, False])
-@pytest.mark.parametrize("existing_url", [None, "https://guard.example/reconnect"])
+@pytest.mark.parametrize(
+    "existing_url", [None, "https://guard.example/reconnect", "http://127.0.0.1:5474/requests/old-package"]
+)
 def test_unavailable_approval_server_explains_recovery_without_relaxing_policy(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -126,7 +143,10 @@ def test_unavailable_approval_server_explains_recovery_without_relaxing_policy(
     monkeypatch.setattr(render, "_RICH_AVAILABLE", rich_available)
     store = GuardStore(tmp_path / "guard-home")
     payload = _pending_package_payload()
+    payload["primary_approval_url"] = existing_url
     payload["supply_chain_evaluation"]["user_copy"]["dashboard_url"] = existing_url
+    if existing_url:
+        payload["supply_chain_evaluation"]["user_copy"]["harness_message"] += f" Review: {existing_url}"
     attempted: list[Path] = []
 
     def unavailable(guard_home: Path) -> str:
@@ -149,7 +169,9 @@ def test_unavailable_approval_server_explains_recovery_without_relaxing_policy(
     assert "hol-guard daemon repair" in output
     assert "private startup diagnostic" not in output
     if existing_url is not None:
-        assert existing_url in output
+        assert existing_url not in output
+    assert payload.get("primary_approval_url") is None
+    assert payload["supply_chain_evaluation"]["user_copy"]["dashboard_url"] is None
     assert "approval_request_ids" not in payload
     assert payload["executed"] is False
     assert payload["verdict"]["action"] == "require-reapproval"
