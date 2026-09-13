@@ -7972,7 +7972,12 @@ class GuardDaemonServer:
 
     def serve(self) -> None:
         self._serve_thread_error = None
-        self._begin_service(publish_before_workers=True)
+        try:
+            self._begin_service(publish_before_workers=True)
+        except RuntimeError as error:
+            if str(error) == "Guard daemon stopped during startup":
+                return
+            raise
         generation = self._active_start_generation
         serve_thread = self._thread
         try:

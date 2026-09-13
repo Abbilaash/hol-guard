@@ -61,6 +61,7 @@ def test_daemon_serve_publishes_listen_state_before_artifact_reconciliation(
                 break
             time.sleep(0.05)
         assert url is not None
+        assert reconcile_started.wait(timeout=8)
         assert release_reconcile.is_set() is False
         records = [
             json.loads(line)

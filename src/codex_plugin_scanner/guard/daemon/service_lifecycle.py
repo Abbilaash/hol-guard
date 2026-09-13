@@ -91,12 +91,11 @@ def begin_service(server: GuardDaemonServer, *, publish_before_workers: bool = F
         serve_thread = server._thread
         if serve_thread is not None:
             server._server.request_serve_stop()
+            server._join_service_thread(serve_thread, deadline=time.monotonic() + 5)
         if not server._finish_service():
             add_note = getattr(error, "add_note", None)
             if callable(add_note):
                 add_note("Guard retained daemon ownership because partial-start containment was unconfirmed.")
-        if serve_thread is not None:
-            server._join_service_thread(serve_thread, deadline=time.monotonic() + 5)
         raise
 
 
