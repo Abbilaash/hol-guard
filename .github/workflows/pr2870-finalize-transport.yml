@@ -55,17 +55,50 @@ jobs:
           replace_once(support, old_prefilter, new_prefilter)
 
           requests = "src/codex_plugin_scanner/guard/runtime/secret_file_request_services/tool_action_requests.py"
+          raw_wrapper_pass = '''        if wrapper_chain:\n            destructive_shell_request = _destructive_shell_tool_action_request(\n                tool_name=requested_tool_name,\n                normalized_tool_name=effective_tool_name,\n                command_text=raw_command_text,\n                cwd=cwd,\n                home_dir=home_dir,\n                canonical_command=candidate_canonical,\n                raw_command_text=raw_command_text,\n                execution_context=raw_destructive_execution_context,\n                raw_execution_context=raw_destructive_execution_context,\n            )\n            if destructive_shell_request is not None:\n                destructive_shell_request = _request_with_shell_execution_context(\n                    destructive_shell_request,\n                    command_text=normalized_command_text,\n                    cwd=cwd,\n                )\n                destructive_shell_request = _request_with_wrapper_context(\n                    replace(\n                        destructive_shell_request,\n                        command_text=normalized_command_text,\n                    ),\n                    raw_command_text=raw_command_text,\n                    wrapper_chain=wrapper_chain,\n                )\n                return destructive_shell_request\n'''
           replace_once(
               requests,
-              '''            if destructive_shell_request is not None:\n                destructive_shell_request = _request_with_shell_execution_context(\n                    destructive_shell_request,\n                    command_text=normalized_command_text,\n                    cwd=cwd,\n                )\n''',
-              '''            if (\n                destructive_shell_request is not None\n                and destructive_shell_request.reason_code == "shell_local_script_execution_review"\n            ):\n                # The transparent wrapper has already been proven and the normalized\n                # inner command was classified above. Do not let the raw wrapper's\n                # -c transport syntax manufacture a second opaque-script review.\n                destructive_shell_request = None\n            if destructive_shell_request is not None:\n                destructive_shell_request = _request_with_shell_execution_context(\n                    destructive_shell_request,\n                    command_text=normalized_command_text,\n                    cwd=cwd,\n                )\n''',
+              raw_wrapper_pass,
+              '''        # The normalized classifier call above already receives the raw command\n        # and raw execution context, so reclassifying a proven transparent wrapper\n        # only manufactures wrapper-level false positives.\n''',
           )
 
           benign = "src/codex_plugin_scanner/guard/runtime/secret_file_request_services/benign_requests.py"
           replace_once(
               benign,
               '''        if assess_shell_reads(command_text, cwd=cwd, home_dir=home_dir).requires_review:\n            return False\n''',
-              '''        read_assessment = assess_shell_reads(command_text, cwd=cwd, home_dir=home_dir)\n        if read_assessment.sensitive_paths:\n            return False\n''',
+              '''        read_assessment = assess_shell_reads(command_text, cwd=cwd, home_dir=home_dir)\n        if read_assessment.sensitive_paths or read_assessment.incomplete:\n            return False\n''',
+          )
+
+          evaluation = "src/codex_plugin_scanner/guard/runtime/command_evaluation.py"
+          replace_once(
+              evaluation,
+              '''from .command_extensions import (\n    BUILT_IN_COMMAND_EXTENSION_REGISTRY,\n    CommandSafetyExtension,\n    CommandSafetyExtensionRegistry,\n    risk_classes_for_command_action,\n)\n''',
+              '''from .command_extensions import (\n    BUILT_IN_COMMAND_EXTENSION_REGISTRY,\n    CommandSafetyExtension,\n    CommandSafetyExtensionRegistry,\n)\n''',
+          )
+          replace_once(
+              evaluation,
+              '''        if self.controlling_action_class is not None:\n            risks.update(risk_classes_for_command_action(self.controlling_action_class))\n''',
+              '',
+          )
+          replace_once(
+              evaluation,
+              '''    authorization_evidence = github_workflow_authorization_evidence(\n        workflow_authorization,\n        command_identity=command.security_identity,\n    )\n    read_assessment = assess_shell_reads(command_text, cwd=cwd, home_dir=home_dir)\n    read_factors: tuple[DecisionFactor, ...] = ()\n''',
+              '''    authorization_evidence = github_workflow_authorization_evidence(\n        workflow_authorization,\n        command_identity=command.security_identity,\n    )\n    authorized_action_class = authorization_evidence[1] if authorization_evidence is not None else None\n    workflow_authorizes_compatibility = (\n        authorized_action_class is not None\n        and effective_compatibility_class is not None\n        and authorized_action_class == effective_compatibility_class\n    )\n    read_assessment = assess_shell_reads(command_text, cwd=cwd, home_dir=home_dir)\n    read_factors: tuple[DecisionFactor, ...] = ()\n    decision_read_factors: tuple[DecisionFactor, ...] = ()\n''',
+          )
+          replace_once(
+              evaluation,
+              '''        read_factors = (\n            DecisionFactor(\n                source=DecisionFactorSource.POLICY,\n                reason_code=reason_code,\n                basis=DecisionBasis("require-reapproval", None),\n                operation_ref=f"operation:{command.security_identity.rsplit(':', 1)[-1]}",\n                producer_ref="runtime:shell-read-floors-v1",\n            ),\n        )\n        minimum_action = _stronger_floor(minimum_action, "review")\n''',
+              '''        read_factors = (\n            DecisionFactor(\n                source=DecisionFactorSource.POLICY,\n                reason_code=reason_code,\n                basis=DecisionBasis("require-reapproval", None),\n                operation_ref=f"operation:{command.security_identity.rsplit(':', 1)[-1]}",\n                producer_ref="runtime:shell-read-floors-v1",\n            ),\n        )\n        if read_assessment.sensitive_paths:\n            decision_read_factors = read_factors\n        elif workflow_authorizes_compatibility:\n            decision_read_factors = ()\n        elif compatibility_explicitly_enabled and command.wrapper_chain and not read_assessment.incomplete:\n            decision_read_factors = ()\n        else:\n            decision_read_factors = read_factors\n        minimum_action = _stronger_floor(minimum_action, "review")\n''',
+          )
+          replace_once(
+              evaluation,
+              '    authorized_action_class = authorization_evidence[1] if authorization_evidence is not None else None\n',
+              '',
+          )
+          replace_once(
+              evaluation,
+              '''                *critical_floor_factors,\n                *read_factors,\n                *control_resolution.factors,\n''',
+              '''                *critical_floor_factors,\n                *decision_read_factors,\n                *control_resolution.factors,\n''',
           )
 
           display = "src/codex_plugin_scanner/guard/runtime/command_activity_display.py"
@@ -80,39 +113,57 @@ jobs:
               '''    scrubbed = _HEREDOC_RE.sub(r"\\g<op>…\\g<end>", value)\n    scrubbed = _ENV_ASSIGNMENT_RE.sub("[redacted]", scrubbed)\n    scrubbed = _SENSITIVE_KEY_VALUE_RE.sub("[redacted]", scrubbed)\n''',
           )
 
-          tests = "tests/test_guard_command_activity_invocation.py"
+          activity_tests = "tests/test_guard_command_activity_invocation.py"
           anchor = '''def test_invocation_preview_scrubs_spaced_heredocs_urls_and_quoted_secrets() -> None:\n'''
           addition = '''def test_invocation_preview_redacts_colon_delimited_credentials() -> None:\n    raw_values = (\n        "SYNTHETIC_PASSWORD_VALUE",\n        "SYNTHETIC_AUTHORIZATION_VALUE",\n        "SYNTHETIC_ACCESS_KEY_VALUE",\n    )\n    preview = build_invocation_preview(\n        f"echo password: '{raw_values[0]}' authorization: \\\"Bearer {raw_values[1]}\\\" access-key={raw_values[2]}"\n    )\n    assert preview is not None\n    assert all(value not in preview for value in raw_values)\n\n\ndef test_recorded_command_activity_redacts_colon_delimited_credentials(tmp_path: Path) -> None:\n    store = GuardStore(tmp_path / "guard-home", prime_policy_integrity=False)\n    raw_values = (\n        "SYNTHETIC_PASSWORD_VALUE",\n        "SYNTHETIC_AUTHORIZATION_VALUE",\n        "SYNTHETIC_ACCESS_KEY_VALUE",\n    )\n    command = (\n        f"echo password: {raw_values[0]} authorization: {raw_values[1]} "\n        f"access_key: {raw_values[2]}"\n    )\n    assert record_pre_hook_command_activity_best_effort(\n        store=store,\n        guard_home=store.guard_home,\n        harness="codex",\n        event="PreToolUse",\n        payload={\n            "tool_name": "Shell",\n            "tool_input": {"command": command},\n            "tool_call_id": "toolcall_redaction_abcdef1234567890",\n        },\n        policy_action="warn",\n        receipt_id=None,\n        prompted=False,\n    )\n    page = store.list_command_activity_page(CommandActivityListQuery())\n    preview = page["items"][0]["invocation_preview"]\n    assert isinstance(preview, str)\n    assert all(value not in preview for value in raw_values)\n    with sqlite3.connect(store.path) as connection:\n        persisted = connection.execute(\n            "select invocation_preview from command_activity_invocation"\n        ).fetchone()\n    assert persisted is not None\n    assert all(value not in str(persisted[0]) for value in raw_values)\n\n\n'''
-          replace_once(tests, anchor, addition + anchor)
+          replace_once(activity_tests, anchor, addition + anchor)
+
+          grok_tests = "tests/test_guard_grok_auto_resume.py"
+          replace_once(grok_tests, "import time\n", "import time\nfrom datetime import datetime, timezone\n")
+          replace_once(
+              grok_tests,
+              '''                apply_approval_resolution(\n                    store=store,\n                    request_id=request_id,\n                    action="allow",\n                    scope="artifact",\n                    workspace=str(workspace),\n                    reason="reviewed",\n                    now="2026-05-08T10:00:01+00:00",\n                )\n''',
+              '''                apply_approval_resolution(\n                    store=store,\n                    request_id=request_id,\n                    action="allow",\n                    scope="artifact",\n                    workspace=str(workspace),\n                    reason="reviewed",\n                    now=datetime.now(tz=timezone.utc).isoformat(),\n                )\n''',
+          )
           PY
 
           uv sync --frozen --extra dev --python 3.12
+          uv run --no-sync python tests/guard_command_decision_diff.py --write
           uv run --no-sync pytest -q \
-            tests/test_guard_command_decision_diff.py::test_fresh_process_report_is_environment_independent_and_bounded \
+            tests/test_guard_command_decision_diff.py \
             tests/test_guard_copilot_benign_policy_hint.py \
-            tests/test_guard_shell_command_wrappers.py::test_wrapped_read_only_shell_command_stays_unblocked \
+            tests/test_guard_shell_command_wrappers.py \
             tests/test_guard_shell_secret_read_floors.py \
             tests/test_guard_shell_read_syntax_fidelity.py \
             tests/test_guard_compound_developer_inspection.py \
+            tests/test_shell_initial_risk_incomplete_review.py \
             tests/test_guard_command_activity_invocation.py \
             tests/test_guard_grok_auto_resume.py::test_grok_isolated_hook_resumes_after_approval \
             tests/test_guard_github_workflow_runtime.py::test_resolved_guard_lineage_issues_bounded_retry_capability \
             tests/test_guard_command_git_stash_permission.py \
+            tests/test_guard_command_decision_runtime_policy.py \
             tests/test_guard_cli.py::TestGuardCli::test_guard_codex_hook_observe_mode_does_not_pause_risky_tool_use \
-            tests/test_guard_surface_server.py::TestGuardSurfaceServer::test_guard_daemon_pi_hook_endpoint_returns_blocked_runtime_review_payload
+            tests/test_guard_surface_server.py::TestGuardSurfaceServer::test_guard_daemon_pi_hook_endpoint_returns_blocked_runtime_review_payload \
+            tests/test_native_review_approval_coordination.py \
+            tests/test_native_review_reuse_command_shape.py \
+            tests/test_store_native_review_approvals_security.py
           uv run --no-sync python tests/guard_command_decision_diff.py --check
           uv run --no-sync ruff check \
             src/codex_plugin_scanner/guard/runtime/_shell_secret_read_support.py \
             src/codex_plugin_scanner/guard/runtime/secret_file_request_services/tool_action_requests.py \
             src/codex_plugin_scanner/guard/runtime/secret_file_request_services/benign_requests.py \
+            src/codex_plugin_scanner/guard/runtime/command_evaluation.py \
             src/codex_plugin_scanner/guard/runtime/command_activity_display.py \
-            tests/test_guard_command_activity_invocation.py
+            tests/test_guard_command_activity_invocation.py \
+            tests/test_guard_grok_auto_resume.py
           uv run --no-sync ruff format --check \
             src/codex_plugin_scanner/guard/runtime/_shell_secret_read_support.py \
             src/codex_plugin_scanner/guard/runtime/secret_file_request_services/tool_action_requests.py \
             src/codex_plugin_scanner/guard/runtime/secret_file_request_services/benign_requests.py \
+            src/codex_plugin_scanner/guard/runtime/command_evaluation.py \
             src/codex_plugin_scanner/guard/runtime/command_activity_display.py \
-            tests/test_guard_command_activity_invocation.py
+            tests/test_guard_command_activity_invocation.py \
+            tests/test_guard_grok_auto_resume.py
           test "$(wc -l < src/codex_plugin_scanner/guard/runtime/_shell_secret_read_support.py)" -le 500
           git diff --check
           rm -rf .github/pr2870-finalize .github/workflows/pr2870-finalize-transport.yml
