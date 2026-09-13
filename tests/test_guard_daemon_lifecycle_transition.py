@@ -128,3 +128,43 @@ def test_serve_base_exception_is_contained_when_stop_races_serve_loop(
     finally:
         release_serve.set()
         daemon.stop()
+
+
+def test_failed_start_retains_ownership_when_serve_join_returns_a_live_thread(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    daemon = GuardDaemonServer(
+        GuardStore(tmp_path / "guard-home"),
+        host="127.0.0.1",
+        port=0,
+        idle_timeout_seconds=0,
+    )
+    leftover = threading.Thread(target=lambda: None, name="leftover-serve")
+    finish_calls: list[int] = []
+    original_finish = daemon._finish_service
+
+    def boom(generation: int | None = None, **kwargs: object) -> None:
+        del generation, kwargs
+        daemon._thread = leftover
+        raise RuntimeError("startup boom")
+
+    monkeypatch.setattr(daemon, "_begin_owned_service", boom)
+    monkeypatch.setattr(
+        daemon,
+        "_join_service_thread",
+        lambda thread, deadline: thread,
+    )
+    monkeypatch.setattr(
+        daemon,
+        "_finish_service",
+        lambda: finish_calls.append(1) or True,
+    )
+    with pytest.raises(RuntimeError, match="startup boom") as caught:
+        daemon.start()
+    notes = getattr(caught.value, "__notes__", [])
+    assert any("serve thread did not exit" in note for note in notes)
+    assert finish_calls == []
+    assert daemon._owner_lock is not None
+    daemon._finish_service = original_finish
+    daemon.stop()
