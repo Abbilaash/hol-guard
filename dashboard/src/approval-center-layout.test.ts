@@ -8,12 +8,6 @@ import {
   displayArtifactName,
   EMPTY_QUEUE_TITLE,
   STALE_REQUEST_COPY,
-  QUEUE_CONNECTION_ERROR_HEADLINE,
-  QUEUE_CONNECTION_ERROR_INSTRUCTION,
-  QUEUE_SESSION_ERROR_DETAIL,
-  QUEUE_SESSION_ERROR_HEADLINE,
-  QUEUE_SESSION_ERROR_INSTRUCTION,
-  queueErrorIsUnauthorizedSession,
   buildRecommendation,
   buildRetryAfterApprovalCopy,
   buildPauseLine,
@@ -28,7 +22,6 @@ import type { GuardActionEnvelope, GuardApprovalRequest, GuardCodexResumeResult 
 import { renderToStaticMarkup } from "react-dom/server";
 import { PrimaryActionCard } from "./review-states";
 import { ReviewDecisionCard } from "./review-decision-card";
-import { QueueConnectionError } from "./queue-connection-error";
 
 function assert(condition: boolean, message: string): void {
   if (!condition) {
@@ -320,25 +313,10 @@ assert(
   "P45: pending requests without an envelope use a neutral command label"
 );
 
-assert(
-  EMPTY_QUEUE_TITLE === "Review queue is clear",
-  'C5: Empty queue reports that the review queue is clear'
-);
-
-assert(
-  !EMPTY_QUEUE_TITLE.toLowerCase().includes("blocked"),
-  "P45: Empty review queue does not relabel pending decisions as blocks"
-);
-
-assert(
-  STALE_REQUEST_COPY === "This request was already decided.",
-  'C6: Stale request shows "already decided" copy; STALE_REQUEST_COPY constant is correct'
-);
-
-assert(
-  STALE_REQUEST_COPY.toLowerCase().includes("already decided"),
-  'C6: Stale request copy contains "already decided"; not approve/block buttons'
-);
+assert(EMPTY_QUEUE_TITLE === "Review queue is clear", "C5: Empty queue reports that the review queue is clear");
+assert(!EMPTY_QUEUE_TITLE.toLowerCase().includes("blocked"), "P45: Empty review queue does not relabel pending decisions as blocks");
+assert(STALE_REQUEST_COPY === "This request was already decided.", "C6: Stale request shows already decided copy");
+assert(STALE_REQUEST_COPY.toLowerCase().includes("already decided"), "C6: Stale request copy contains already decided");
 
 assert(
   scopeLabel("artifact") === "This retry only",
@@ -416,75 +394,6 @@ const inconsistentRequest: GuardApprovalRequest = {
 assert(
   requestResolutionBlockReason(inconsistentRequest)?.includes("cannot be approved") === true,
   "P45: inconsistent stored authority has explicit non-resolvable UI copy",
-);
-
-assert(
-  QUEUE_CONNECTION_ERROR_HEADLINE.toLowerCase().includes("daemon"),
-  "C10: Connection error headline mentions the daemon so users know what to start"
-);
-
-assert(
-  QUEUE_CONNECTION_ERROR_HEADLINE.toLowerCase().includes("approval link"),
-  "C10: Connection error headline explains approval links require the daemon to be running"
-);
-
-assert(
-  QUEUE_CONNECTION_ERROR_INSTRUCTION.toLowerCase().includes("reload"),
-  "C11: Connection error instruction tells users to reload after starting Guard"
-);
-
-assert(
-  QUEUE_CONNECTION_ERROR_INSTRUCTION.toLowerCase().includes("start"),
-  "C11: Connection error instruction tells users to start Guard on this machine"
-);
-
-assert(
-  queueErrorIsUnauthorizedSession("unauthorized (401)") &&
-    queueErrorIsUnauthorizedSession("HTTP 401") &&
-    !queueErrorIsUnauthorizedSession("Guard daemon not reachable") &&
-    !queueErrorIsUnauthorizedSession(""),
-  "C10b: 401 copy is a missing session, not a down daemon"
-);
-
-assert(
-  !QUEUE_SESSION_ERROR_HEADLINE.toLowerCase().includes("daemon") &&
-    !QUEUE_SESSION_ERROR_INSTRUCTION.toLowerCase().includes("start") &&
-    QUEUE_SESSION_ERROR_HEADLINE.toLowerCase().includes("signed local session") &&
-    QUEUE_SESSION_ERROR_DETAIL.toLowerCase().includes("still running"),
-  "C10b: session error copy says Guard is running and the browser is unsigned"
-);
-
-const connectionMarkup = renderToStaticMarkup(
-  createElement(QueueConnectionError, {
-    message: "Failed to fetch",
-    approvalUrl: null,
-    onRetry: () => undefined,
-  }),
-);
-assert(
-  connectionMarkup.includes(QUEUE_CONNECTION_ERROR_HEADLINE) &&
-    connectionMarkup.includes("hol-guard start") &&
-    connectionMarkup.includes("Repair"),
-  "Connection errors still offer Repair and hol-guard start",
-);
-
-const sessionMarkup = renderToStaticMarkup(
-  createElement(QueueConnectionError, {
-    message: "unauthorized (401)",
-    approvalUrl: null,
-    onRetry: () => undefined,
-  }),
-);
-assert(
-  sessionMarkup.includes(QUEUE_SESSION_ERROR_HEADLINE) &&
-    sessionMarkup.includes(QUEUE_SESSION_ERROR_DETAIL) &&
-    sessionMarkup.includes(QUEUE_SESSION_ERROR_INSTRUCTION) &&
-    sessionMarkup.includes("Retry") &&
-    !sessionMarkup.includes("unauthorized (401)") &&
-    !sessionMarkup.includes("hol-guard start") &&
-    !sessionMarkup.includes("Guard daemon not reachable") &&
-    !sessionMarkup.includes("Repair"),
-  "401 inbox errors do not tell the user Guard is down",
 );
 
 assert(

@@ -7,7 +7,7 @@ import {
   QUEUE_SESSION_ERROR_HEADLINE,
   QUEUE_SESSION_ERROR_INSTRUCTION,
   queueErrorIsUnauthorizedSession,
-} from "./approval-center-utils";
+} from "./queue-connection-copy";
 
 export function QueueConnectionError(props: {
   message: string;
@@ -58,11 +58,13 @@ export function QueueConnectionError(props: {
           ) : (
             <ActionButton onClick={handleOpenDaemon}>Repair</ActionButton>
           )}
-          {props.onRepair !== undefined && (
-            <ActionButton onClick={handleRepair} disabled={repairing} variant="outline">
-              {repairing ? "Repairing..." : "Reconnect"}
-            </ActionButton>
-          )}
+          {sessionMissing
+            ? null
+            : props.onRepair !== undefined && (
+                <ActionButton onClick={handleRepair} disabled={repairing} variant="outline">
+                  {repairing ? "Repairing..." : "Reconnect"}
+                </ActionButton>
+              )}
           {sessionMissing ? null : (
             <code className="inline-flex min-h-10 items-center rounded-lg border border-brand-purple/30 bg-slate-50 px-3 py-2 font-mono text-sm text-brand-purple select-all">
               hol-guard start
