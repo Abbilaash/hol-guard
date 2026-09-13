@@ -90,6 +90,34 @@ def test_hol_guard_desktop_bootstrap_json_skips_command_surface(
     assert _COMMANDS_SUPPORT not in sys.modules
 
 
+def test_hol_guard_desktop_bootstrap_fast_path_maps_unexpected_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from codex_plugin_scanner.guard.cli import desktop_bootstrap
+
+    monkeypatch.setattr(
+        desktop_bootstrap,
+        "run_desktop_bootstrap_cli",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("desktop bootstrap failed")),
+    )
+    monkeypatch.delitem(sys.modules, _CLI_MODULE, raising=False)
+    monkeypatch.delattr(codex_plugin_scanner, "cli", raising=False)
+
+    previous_argv = sys.argv
+    sys.argv = ["hol-guard", "desktop", "bootstrap", "--json"]
+    try:
+        captured_err = io.StringIO()
+        with contextlib.redirect_stderr(captured_err), contextlib.redirect_stdout(io.StringIO()):
+            from codex_plugin_scanner.cli import main
+
+            code = main(["desktop", "bootstrap", "--json"])
+    finally:
+        sys.argv = previous_argv
+
+    assert code == 1
+    assert "desktop bootstrap failed" in captured_err.getvalue()
+
+
 def test_resolve_targets_accepts_multiple_harnesses(tmp_path: Path) -> None:
     from codex_plugin_scanner.guard.adapters.base import HarnessContext
 

@@ -46,13 +46,13 @@ def run_desktop_bootstrap_cli(*, output_stream: TextIO | None = None) -> int:
             prime_policy_integrity=False,
             allow_system_keyring=False,
         )
-    except (TimeoutError, ValueError) as error:
+        config = overlay_synced_guard_policy(
+            load_guard_config(guard_home, workspace=None),
+            synced_policy_payload(store),
+        )
+    except (OSError, TimeoutError, ValueError) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 2
-    config = overlay_synced_guard_policy(
-        load_guard_config(guard_home, workspace=None),
-        synced_policy_payload(store),
-    )
     args = argparse.Namespace(guard_command="desktop", desktop_command="bootstrap", json=True)
     return _run_guard_desktop_command(
         args,

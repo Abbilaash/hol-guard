@@ -418,7 +418,14 @@ def main(argv: list[str] | None = None) -> int:
             # Fast path: Desktop warmup always invokes `desktop bootstrap --json`.
             # Building the full Guard parser (MDM, cloud, policy, extensions)
             # dominates that spawn; home overrides still use argparse.
-            return run_desktop_bootstrap_cli()
+            try:
+                return run_desktop_bootstrap_cli()
+            except ValueError as exc:
+                print(str(exc), file=sys.stderr)
+                return 2
+            except Exception as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
     parser = _build_parser(program_name, program_mode=program_mode)
     resolved_argv = _resolve_legacy_args(
         requested_argv,
