@@ -1,1 +1,2 @@
 Trigger the validated PR 2870 final policy repair workflow.
+Run 2: preserve normalized wrapper semantics, bounded approvals, and preview redaction.
