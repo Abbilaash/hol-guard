@@ -15,7 +15,6 @@ jobs:
     permissions:
       contents: read
       actions: read
-      pull-requests: read
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -23,7 +22,14 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - name: Export source and review evidence
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.13'
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39
+        with:
+          version: '0.9.26'
+          enable-cache: false
+      - name: Export current source and failed-job logs
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -32,8 +38,6 @@ jobs:
           mkdir -p "$RUNNER_TEMP/pr2870-evidence"
           git archive --format=tar.gz HEAD > "$RUNNER_TEMP/pr2870-evidence/head.tar.gz"
           git archive --format=tar.gz origin/main > "$RUNNER_TEMP/pr2870-evidence/main.tar.gz"
-          git diff origin/main...HEAD > "$RUNNER_TEMP/pr2870-evidence/pr.patch"
-          git show 0e7de4c65befe24dde727128bf662abf8d245ad4:.github/workflows/pr2870-finalize-transport.yml > "$RUNNER_TEMP/pr2870-evidence/previous-repair.yml"
           printf 'head=%s\nmain=%s\n' "$(git rev-parse HEAD)" "$(git rev-parse origin/main)" > "$RUNNER_TEMP/pr2870-evidence/refs.txt"
           python - <<'PY'
           import concurrent.futures
@@ -44,38 +48,38 @@ jobs:
 
           root = Path(os.environ['RUNNER_TEMP']) / 'pr2870-evidence'
           api = 'https://api.github.com/repos/hashgraph-online/hol-guard/'
-          headers = {'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'}
           def get(path):
-              with urlopen(Request(api + path, headers=headers), timeout=60) as response:
+              request = Request(api + path, headers={'Accept': 'application/vnd.github+json'})
+              request.add_unredirected_header('Authorization', 'Bearer ' + os.environ['GH_TOKEN'])
+              with urlopen(request, timeout=60) as response:
                   return response.read()
-          def pages(path, key=None):
-              result = []
-              for page in range(1, 20):
-                  value = json.loads(get(path + ('&' if '?' in path else '?') + f'per_page=100&page={page}'))
-                  items = value[key] if key else value
-                  result.extend(items)
-                  if len(items) < 100:
-                      return result
+          jobs = []
+          for page in range(1, 20):
+              items = json.loads(get(f'actions/runs/34733995800/jobs?per_page=100&page={page}'))['jobs']
+              jobs.extend(items)
+              if len(items) < 100:
+                  break
+          else:
               raise RuntimeError('pagination exceeded')
-          for name, path in [('comments', 'issues/2870/comments'), ('reviews', 'pulls/2870/reviews'), ('review-comments', 'pulls/2870/comments')]:
-              (root / (name + '.json')).write_text(json.dumps(pages(path), indent=2))
-          jobs = pages('actions/runs/34733995800/jobs', 'jobs')
           (root / 'jobs.json').write_text(json.dumps(jobs, indent=2))
           failed = [job for job in jobs if job['conclusion'] == 'failure']
           def log(job):
-              try:
-                  (root / (str(job['id']) + '.log')).write_bytes(get(f"actions/jobs/{job['id']}/logs"))
-              except Exception as exc:
-                  print(job['id'], type(exc).__name__, str(exc))
-                  raise
+              (root / (str(job['id']) + '.log')).write_bytes(get(f"actions/jobs/{job['id']}/logs"))
           with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
               list(executor.map(log, failed))
           print(json.dumps([{'id': j['id'], 'name': j['name']} for j in failed]))
           PY
+      - name: Export locked development dependencies for offline tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv export --frozen --extra dev --no-emit-project --no-hashes --format requirements-txt > "$RUNNER_TEMP/pr2870-evidence/requirements.txt"
+          python -m pip download --only-binary=:all: --dest "$RUNNER_TEMP/pr2870-evidence/wheels" -r "$RUNNER_TEMP/pr2870-evidence/requirements.txt"
+          python -m pip download --only-binary=:all: --dest "$RUNNER_TEMP/pr2870-evidence/wheels" 'hatchling<1.31' importlib-metadata
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
-          name: pr2870-current-repair-evidence
+          name: pr2870-locked-repair-evidence
           path: ${{ runner.temp }}/pr2870-evidence
           if-no-files-found: error
           retention-days: 3
