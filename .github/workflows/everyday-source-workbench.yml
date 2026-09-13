@@ -1,0 +1,29 @@
+name: Everyday source workbench
+
+on:
+  push:
+    branches: [feat/everyday-r32-surfaces-20260913]
+    paths: [.github/workflows/everyday-source-workbench.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    if: github.repository == 'hashgraph-online/hol-guard' && github.actor_id == '6068672'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Archive the exact source
+        run: git archive --format=tar.gz HEAD > "$RUNNER_TEMP/everyday-source.tar.gz"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: everyday-source-${{ github.sha }}
+          path: ${{ runner.temp }}/everyday-source.tar.gz
+          if-no-files-found: error
+          retention-days: 3
