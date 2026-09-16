@@ -6,7 +6,7 @@
     "canonical_diff_digest",
     "effective"
   ],
-  "catalog_digest": "c0b23f157bc4921d1c51c692c4cb039da560bc176ce13a416f8d122c25db2a41",
+  "catalog_digest": "7c5b2bc76ba400ba11801257389537da4c57ba2aeb9bb965f48a54ce79de7c3f",
   "control_schema_version": "1.0.0",
   "daemon_api_schema": "guard.daemon.extension-controls.v1",
   "effective_shape": [
@@ -20,7 +20,7 @@
     "failures",
     "projection"
   ],
-  "extension_count": 69,
+  "extension_count": 70,
   "extension_ids": [
     "command.api-gateway",
     "command.backup.borg",
@@ -50,6 +50,7 @@
     "command.encoded-execution",
     "command.feature-flags",
     "command.filesystem",
+    "command.formicx",
     "command.framework.laravel",
     "command.git",
     "command.github",
@@ -95,7 +96,7 @@
   "extension_schema_version": 2,
   "installed_browser_config": "dashboard/playwright.installed.config.ts",
   "overview_route": "/extensions",
-  "permission_count": 245,
+  "permission_count": 249,
   "permission_examples": {
     "command.api-gateway.permission.delete": "aws apigateway delete-rest-api",
     "command.backup.borg.permission.mutation": "borg delete",
@@ -166,6 +167,10 @@
     "command.feature-flags.permission.delete": "ldcli flags delete",
     "command.filesystem.permission.recursive-delete": "rm -r build/",
     "command.filesystem.permission.recursive-permission-change": "chmod -R go-w vendor/",
+    "command.formicx.permission.agent-register": "formicx agent register",
+    "command.formicx.permission.agent-restart": "formicx agent restart",
+    "command.formicx.permission.agent-start": "formicx agent start",
+    "command.formicx.permission.agent-stop": "formicx agent stop",
     "command.framework.laravel.permission.database-wipe": "php artisan db:wipe",
     "command.framework.laravel.permission.migrate-fresh": "php artisan migrate:fresh --seed",
     "command.framework.laravel.permission.migrate-reset": "php artisan migrate:reset",
@@ -509,6 +514,10 @@
     "command.feature-flags.permission.delete",
     "command.filesystem.permission.recursive-delete",
     "command.filesystem.permission.recursive-permission-change",
+    "command.formicx.permission.agent-register",
+    "command.formicx.permission.agent-restart",
+    "command.formicx.permission.agent-start",
+    "command.formicx.permission.agent-stop",
     "command.framework.laravel.permission.database-wipe",
     "command.framework.laravel.permission.migrate-fresh",
     "command.framework.laravel.permission.migrate-reset",
@@ -696,7 +705,7 @@
     "controls",
     "semantic_preview"
   ],
-  "rule_count": 232,
+  "rule_count": 236,
   "rule_ids": [
     "command.api-gateway.delete",
     "command.backup.borg.mutation",
@@ -767,6 +776,10 @@
     "command.feature-flags.delete",
     "command.filesystem.recursive-delete",
     "command.filesystem.recursive-permission-change",
+    "command.formicx.agent-register",
+    "command.formicx.agent-start",
+    "command.formicx.agent-stop",
+    "command.formicx.agent-restart",
     "command.framework.laravel.database-wipe",
     "command.framework.laravel.migrate-fresh",
     "command.framework.laravel.migrate-reset",
