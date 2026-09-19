@@ -1,4 +1,4 @@
-import { aI as fetchLocalCliApi, r as reactExports, aJ as fetchExtensionControlApi, j as jsxRuntimeExports, aK as useResolvedApprovalGate, ac as HiMiniLockClosed, N as HiMiniExclamationTriangle, aj as HiMiniArrowPath, v as HiMiniShieldCheck, aL as HiMiniInformationCircle, ai as isApprovalProofSubmitDisabled, B as HiMiniXMark, ak as ApprovalProofFieldInputs, aM as buildApprovalProofCredentials, aN as GenIcon, P as HiMiniBolt, aO as HiMiniGlobeAlt, aP as HiMiniCube, J as HiMiniCloud, aQ as HiMiniServerStack, b as HiMiniCommandLine, aR as HiMiniFolder, aS as FaWindows, aT as FaAws, q as HiMiniCheckCircle, c as HiMiniChevronRight, F as HiMiniChevronDown, aU as approvalProofRecentlySatisfied, aV as HiMiniArrowLeft, aW as HiMiniPlus, a5 as HiMiniClipboardDocumentCheck, a6 as HiMiniClipboard, ae as HiMiniAdjustmentsHorizontal, aX as HiMiniCheck, aD as HiMiniMagnifyingGlass, z as HiMiniSparkles, aY as HiMiniNoSymbol, aZ as startGuardCloudConnect, a_ as HiMiniArrowTopRightOnSquare, aC as WorkspacePageHeader, a$ as guardAwareHref } from "../guard-dashboard.js";
+import { aL as fetchLocalCliApi, r as reactExports, aM as fetchExtensionControlApi, j as jsxRuntimeExports, aN as useResolvedApprovalGate, af as HiMiniLockClosed, P as HiMiniExclamationTriangle, am as HiMiniArrowPath, w as HiMiniShieldCheck, aO as HiMiniInformationCircle, al as isApprovalProofSubmitDisabled, C as HiMiniXMark, an as ApprovalProofFieldInputs, aP as buildApprovalProofCredentials, aQ as GenIcon, Q as HiMiniBolt, aR as HiMiniGlobeAlt, aS as HiMiniCube, K as HiMiniCloud, aT as HiMiniServerStack, b as HiMiniCommandLine, aU as HiMiniFolder, aV as FaWindows, aW as FaAws, s as HiMiniCheckCircle, c as HiMiniChevronRight, I as HiMiniChevronDown, aX as approvalProofRecentlySatisfied, aY as HiMiniArrowLeft, aZ as HiMiniPlus, a8 as HiMiniClipboardDocumentCheck, a9 as HiMiniClipboard, ah as HiMiniAdjustmentsHorizontal, a_ as HiMiniCheck, aG as HiMiniMagnifyingGlass, B as HiMiniSparkles, a$ as HiMiniNoSymbol, b0 as startGuardCloudConnect, b1 as HiMiniArrowTopRightOnSquare, aF as WorkspacePageHeader, b2 as guardAwareHref } from "../guard-dashboard.js";
 import { A as ApprovalProofModal } from "./approval-proof-modal.js";
 const EXTENSION_ID_PATTERN = /^command\.[a-z0-9]+(?:[.-][a-z0-9]+)*$/;
 const RULE_ID_PATTERN = /^command\.[a-z0-9]+(?:[.-][a-z0-9]+)*$/;
@@ -874,6 +874,15 @@ function version(value, label) {
   if (!VERSION.test(candidate)) throw new ExtensionControlProtocolError(`${label} is not a semantic implementation version`);
   return candidate;
 }
+function terminalCommands(value) {
+  if (value === void 0) return void 0;
+  const item = record$2(value, "effective.terminal_commands");
+  return {
+    ...item.shell === void 0 ? {} : { shell: enumValue(item.shell, "effective.terminal_commands.shell", ["powershell"]) },
+    enroll: string$1(item.enroll, "effective.terminal_commands.enroll"),
+    recover_authority: string$1(item.recover_authority, "effective.terminal_commands.recover_authority")
+  };
+}
 function stringList$1(value, label, max = EXTENSION_CLIENT_LIMITS.relationshipIds) {
   return array(value, label, max).map((item, index) => string$1(item, `${label}[${index}]`));
 }
@@ -949,17 +958,25 @@ function permission(value, extensionId, label) {
 }
 function mcpLaunch(value, label) {
   const item = record$2(value, label);
+  const kind = enumValue(item.kind, `${label}.kind`, ["package-launcher", "remote-http"]);
+  if (kind === "package-launcher") {
+    return {
+      kind,
+      command: string$1(item.command, `${label}.command`),
+      package: string$1(item.package, `${label}.package`)
+    };
+  }
   return {
-    kind: enumValue(item.kind, `${label}.kind`, ["package-launcher"]),
-    command: string$1(item.command, `${label}.command`),
-    package: string$1(item.package, `${label}.package`)
+    kind,
+    url: string$1(item.url, `${label}.url`),
+    serverNames: stringList$1(item.serverNames, `${label}.serverNames`, 8)
   };
 }
 function mcpTool(value, label) {
   const item = record$2(value, label);
   return {
     name: string$1(item.name, `${label}.name`),
-    state: enumValue(item.state, `${label}.state`, ["inherit", "allow", "block"])
+    state: enumValue(item.state, `${label}.state`, ["inherit", "allow", "review", "block"])
   };
 }
 function mcpCatalogFields(item, label) {
@@ -1138,6 +1155,7 @@ function normalizeEffectiveExtensionControls(value) {
     controls,
     layers,
     failures,
+    terminal_commands: terminalCommands(root.terminal_commands),
     projection: root.projection === void 0 ? void 0 : normalizeEffectiveExtensionControlProjection(root.projection),
     managed_controls: managedControls
   };
@@ -4244,7 +4262,13 @@ function effectiveStatusKey(effective, options = {}) {
     } : null
   });
 }
-function authorityNoticeView(health, approvalGateReady) {
+const DEFAULT_TERMINAL_COMMANDS = {
+  enroll: "hol-guard command controls enroll",
+  recover_authority: "hol-guard command controls recover-authority"
+};
+function authorityNoticeView(health, approvalGateReady, terminalCommands2) {
+  const commands = terminalCommands2 ?? DEFAULT_TERMINAL_COMMANDS;
+  const terminalName = terminalCommands2?.shell === "powershell" ? "PowerShell" : "your terminal";
   switch (health) {
     case "tampered":
     case "recovery-required":
@@ -4255,10 +4279,10 @@ function authorityNoticeView(health, approvalGateReady) {
         action: { kind: "repair" },
         actionLabel: "Repair protection",
         actionDetail: "Rebuilding the trusted settings needs your approval password. Guard verifies the repair before protection changes unlock again.",
-        command: "hol-guard command controls recover-authority",
+        command: commands.recover_authority,
         commandLabel: "Repair from the terminal",
         copyButtonLabel: "Copy repair command",
-        terminalSummary: "Run this in your terminal if the button above cannot reach the approval gate."
+        terminalSummary: `Run this in ${terminalName} if the button above cannot reach the approval gate.`
       };
     case "degraded-unacknowledged":
       return {
@@ -4268,10 +4292,10 @@ function authorityNoticeView(health, approvalGateReady) {
         action: { kind: "acknowledge" },
         actionLabel: "Acknowledge limited state",
         actionDetail: "Acknowledging the limited state needs your approval password. Guard keeps protecting fail-safe afterwards.",
-        command: "hol-guard command controls recover-authority",
+        command: commands.recover_authority,
         commandLabel: "Repair from the terminal",
         copyButtonLabel: "Copy repair command",
-        terminalSummary: "A full repair runs from your terminal."
+        terminalSummary: `A full repair runs from ${terminalName}.`
       };
     case "degraded-acknowledged":
       return {
@@ -4281,10 +4305,10 @@ function authorityNoticeView(health, approvalGateReady) {
         action: { kind: "none" },
         actionLabel: null,
         actionDetail: null,
-        command: "hol-guard command controls recover-authority",
+        command: commands.recover_authority,
         commandLabel: "Repair from the terminal",
         copyButtonLabel: "Copy repair command",
-        terminalSummary: "Run this in your terminal to rebuild the trusted settings."
+        terminalSummary: `Run this in ${terminalName} to rebuild the trusted settings.`
       };
     default:
       if (approvalGateReady === null) {
@@ -4322,17 +4346,17 @@ function authorityNoticeView(health, approvalGateReady) {
         action: { kind: "none" },
         actionLabel: null,
         actionDetail: null,
-        command: "hol-guard command controls enroll",
+        command: commands.enroll,
         commandLabel: "Enroll from the terminal",
         copyButtonLabel: "Copy setup command",
-        terminalSummary: "Run this in your terminal to create the trusted settings."
+        terminalSummary: `Run this in ${terminalName} to create the trusted settings.`
       };
   }
 }
 function ProtectionAuthorityNotice(props) {
   const health = props.effective.health;
   const approvalGateReady = props.approvalGate === null ? null : props.approvalGate.configured && props.approvalGate.enabled;
-  const view = authorityNoticeView(health, approvalGateReady);
+  const view = authorityNoticeView(health, approvalGateReady, props.effective.terminal_commands);
   const [proofOpen, setProofOpen] = reactExports.useState(false);
   const [pendingAction, setPendingAction] = reactExports.useState(null);
   const [copyState, setCopyState] = reactExports.useState("idle");
@@ -5631,6 +5655,7 @@ function ExtensionActivity(props) {
 }
 function toolStateLabel(state) {
   if (state === "allow") return "Allow";
+  if (state === "review") return "Review";
   if (state === "block") return "Block";
   return "Recommended";
 }
@@ -5638,19 +5663,30 @@ function McpServerDefaults({ extension: extension2 }) {
   if (extension2.surface !== "mcp") return null;
   const launch = extension2.mcp_launch;
   const tools = extension2.mcp_tools ?? [];
+  const remoteLaunch = launch?.kind === "remote-http" ? launch : null;
+  const packageLaunch = launch?.kind === "package-launcher" ? launch : null;
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("article", { className: "rounded-3xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-2", "data-testid": "mcp-server-defaults", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { className: "text-lg font-semibold text-brand-dark", children: "MCP server defaults" }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "mt-2 text-sm leading-6 text-brand-dark/75", children: "Matching launches use this package name. Defaults apply only after you turn the server on. A custom extension on this device still wins." }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("dl", { className: "mt-5 grid gap-4 sm:grid-cols-2", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "mt-2 text-sm leading-6 text-brand-dark/75", children: remoteLaunch ? "Matching hosted endpoints use these defaults after you turn the server on. A custom extension on this device still wins." : "Matching launches use this package name. Defaults apply only after you turn the server on. A custom extension on this device still wins." }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("dl", { className: "mt-5 grid gap-4 sm:grid-cols-2", children: remoteLaunch ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("dt", { className: "text-xs font-semibold uppercase text-brand-dark/55", children: "Endpoint" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("dd", { className: "mt-1 break-all font-mono text-sm text-brand-dark", children: remoteLaunch.url })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("dt", { className: "text-xs font-semibold uppercase text-brand-dark/55", children: "Server names" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("dd", { className: "mt-1 text-sm text-brand-dark", children: remoteLaunch.serverNames.join(", ") })
+      ] })
+    ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("dt", { className: "text-xs font-semibold uppercase text-brand-dark/55", children: "Launcher" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("dd", { className: "mt-1 text-sm text-brand-dark", children: launch?.command ?? "Package launcher" })
+        /* @__PURE__ */ jsxRuntimeExports.jsx("dd", { className: "mt-1 text-sm text-brand-dark", children: packageLaunch?.command ?? "Package launcher" })
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("dt", { className: "text-xs font-semibold uppercase text-brand-dark/55", children: "Package" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("dd", { className: "mt-1 break-all font-mono text-sm text-brand-dark", children: launch?.package ?? "Unknown package" })
+        /* @__PURE__ */ jsxRuntimeExports.jsx("dd", { className: "mt-1 break-all font-mono text-sm text-brand-dark", children: packageLaunch?.package ?? "Unknown package" })
       ] })
-    ] }),
+    ] }) }),
     tools.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "mt-5 overflow-x-auto", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("table", { className: "min-w-full text-left text-sm", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("thead", { className: "text-xs uppercase tracking-wide text-brand-dark/55", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "pb-2 pr-4 font-semibold", children: "Tool" }),
@@ -6355,6 +6391,7 @@ function ReviewModal(props) {
     ] })
   ] }) });
 }
+const DEFAULT_AUTHORITY_RECOVERY_COMMAND = "hol-guard command controls recover-authority";
 function currentExtensionRouteState() {
   return {
     route: parseProtectionRoute(window.location.pathname),
@@ -6364,13 +6401,15 @@ function currentExtensionRouteState() {
 function requiresExtensionRecoveryApproval(error) {
   return error instanceof ExtensionControlApiError && (error.code === "approval_required" || error.code?.startsWith("approval_gate_") === true);
 }
-function authorityActionErrorMessage(error) {
+function authorityActionErrorMessage(error, recoveryCommand, recoveryShell) {
+  const command = recoveryCommand ?? DEFAULT_AUTHORITY_RECOVERY_COMMAND;
+  const terminalName = recoveryShell === "powershell" ? "PowerShell" : "your terminal";
   if (error instanceof ExtensionControlApiError) {
     if (error.code === "authority_not_recoverable") {
-      return "Guard could not start this repair because the protection state changed underneath it. Guard reloaded the latest status. If protection still needs attention, run `hol-guard command controls recover-authority` in your terminal.";
+      return `Guard could not start this repair because the protection state changed underneath it. Guard reloaded the latest status. If protection still needs attention, run \`${command}\` in ${terminalName}.`;
     }
     if (error.code === "authority_recovery_failed" || error.code === "authority_recovery_incomplete") {
-      return "Guard started the repair but could not verify a fully protected state. Protection stays fail-safe. Try again, or run `hol-guard command controls recover-authority` in your terminal.";
+      return `Guard started the repair but could not verify a fully protected state. Protection stays fail-safe. Try again, or run \`${command}\` in ${terminalName}.`;
     }
     if (error.code === "authority_not_degraded") {
       return "The limited state already changed. Guard reloaded the latest status.";
@@ -6379,7 +6418,7 @@ function authorityActionErrorMessage(error) {
       return "Guard needs your approval password to continue. Enter it and try again.";
     }
   }
-  return error instanceof Error && error.message && !/^authority_|^approval_/.test(error.message) ? error.message : "Guard could not complete this action. Local protection continues. Try again, or run `hol-guard command controls recover-authority` in your terminal.";
+  return error instanceof Error && error.message && !/^authority_|^approval_/.test(error.message) ? error.message : `Guard could not complete this action. Local protection continues. Try again, or run \`${command}\` in ${terminalName}.`;
 }
 function randomToken() {
   return crypto.randomUUID().replaceAll("-", "");
@@ -6430,6 +6469,9 @@ function ProtectionCenterWorkspace(props) {
   const [recoveryBusy, setRecoveryBusy] = reactExports.useState(false);
   const [recoveryError, setRecoveryError] = reactExports.useState(null);
   const [recoveryStatus, setRecoveryStatus] = reactExports.useState(null);
+  const recoveryCommand = state.kind === "ready" ? state.effective.terminal_commands?.recover_authority : void 0;
+  const recoveryShell = state.kind === "ready" ? state.effective.terminal_commands?.shell : void 0;
+  const recoveryTerminal = recoveryShell === "powershell" ? "PowerShell" : "your terminal";
   const { resolvedApprovalGate, resolveApprovalGate, refreshApprovalGate } = useResolvedApprovalGate(null);
   const aliasRedirected = reactExports.useRef(null);
   const overviewKeepAlive = reactExports.useRef(false);
@@ -6602,7 +6644,11 @@ function ProtectionCenterWorkspace(props) {
         setRecoveryStatus("The protection state changed during the attempt. This page now shows the latest status.");
       } else {
         setRecoveryStatus(null);
-        setRecoveryError(authorityActionErrorMessage(error));
+        setRecoveryError(authorityActionErrorMessage(
+          error,
+          recoveryCommand,
+          recoveryShell
+        ));
       }
     } finally {
       setRecoveryBusy(false);
@@ -6618,10 +6664,10 @@ function ProtectionCenterWorkspace(props) {
       refreshApprovalGate({ failClosed: true })
     ]);
     if (approvalResult.status === "rejected") {
-      setRecoveryError("Guard could not load the local approval settings yet. Check the connection and try again, or run `hol-guard command controls recover-authority` in your terminal.");
+      setRecoveryError(`Guard could not load the local approval settings yet. Check the connection and try again, or run \`${recoveryCommand ?? DEFAULT_AUTHORITY_RECOVERY_COMMAND}\` in ${recoveryTerminal}.`);
     }
     if (protectionResult.status === "rejected") throw protectionResult.reason;
-  }, [refreshApprovalGate, refreshProtection]);
+  }, [refreshApprovalGate, refreshProtection, recoveryCommand, recoveryTerminal]);
   const handleOpenApprovalSettings = reactExports.useCallback(() => {
     props.onNavigate("/settings?section=approval");
   }, [props.onNavigate]);
@@ -6629,9 +6675,9 @@ function ProtectionCenterWorkspace(props) {
   reactExports.useEffect(() => {
     if (!authorityNeedsAttention) return;
     void resolveApprovalGate({ failClosed: true }).catch(() => {
-      setRecoveryError("Guard could not load the local approval settings yet. Check the connection and try again, or run `hol-guard command controls recover-authority` in your terminal.");
+      setRecoveryError(`Guard could not load the local approval settings yet. Check the connection and try again, or run \`${recoveryCommand ?? DEFAULT_AUTHORITY_RECOVERY_COMMAND}\` in ${recoveryTerminal}.`);
     });
-  }, [authorityNeedsAttention, resolveApprovalGate]);
+  }, [authorityNeedsAttention, recoveryCommand, recoveryTerminal, resolveApprovalGate]);
   const showOverview = state.kind === "ready" && routeState.route.kind === "overview";
   if (showOverview) overviewKeepAlive.current = true;
   const keepOverviewMounted = state.kind === "ready" && (showOverview || overviewKeepAlive.current);

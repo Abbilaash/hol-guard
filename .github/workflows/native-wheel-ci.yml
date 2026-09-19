@@ -22,6 +22,9 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
           persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
         with:
           python-version: "3.12"
@@ -30,6 +33,8 @@ jobs:
           version: "0.9.26"
           enable-cache: true
       - run: uv sync --frozen --extra dev --python 3.12
+      - name: Verify native command program is current
+        run: uv run --no-sync python scripts/build_native_command_program.py --check
       - name: Run wheel-builder contracts
         run: uv run --no-sync pytest ci/native_runtime/test_native_hol_guard_wheel.py --tb=short
       - name: Install pinned Rust toolchain and musl target
@@ -89,6 +94,8 @@ jobs:
           unset GUARD_TEST_KEYRING_FILE GUARD_TEST_SYNC_AUTH_CONTEXT_JSON GUARD_PYTEST_DURATION_OUTPUT
           unset PYTEST_CURRENT_TEST PYTEST_ADDOPTS PYTEST_PLUGINS PYTHONPATH
           .venv/bin/python ci/native_runtime/probe_native_default_auto.py --json native-default-auto.json
+          .venv/bin/python ci/native_runtime/probe_installed_pi_output.py --json installed-pi-output.json
+          .venv/bin/python -I ci/native_runtime/probe_installed_native_extensions.py --json installed-native-extensions.json
       - name: Measure installed adapter-to-decision SLOs
         env:
           NATIVE_STOP_DIAGNOSTIC_PATH: native-stop-diagnostic.json
@@ -152,6 +159,8 @@ jobs:
           path: |
             native-dist/*.whl
             native-default-auto.json
+            installed-pi-output.json
+            installed-native-extensions.json
             native-installed-slo.json
             native-soak.json
             native-artifact-evidence.json
@@ -177,6 +186,9 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
           persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
         with:
           python-version: "3.12"
@@ -185,6 +197,8 @@ jobs:
           version: "0.9.26"
           enable-cache: true
       - run: uv sync --frozen --extra dev --python 3.12
+      - name: Verify native command program is current
+        run: uv run --no-sync python scripts/build_native_command_program.py --check
       - name: Install pinned Rust toolchain
         run: |
           rustup toolchain install 1.88.0 --profile minimal
@@ -239,6 +253,8 @@ jobs:
           unset GUARD_TEST_KEYRING_FILE GUARD_TEST_SYNC_AUTH_CONTEXT_JSON GUARD_PYTEST_DURATION_OUTPUT
           unset PYTEST_CURRENT_TEST PYTEST_ADDOPTS PYTEST_PLUGINS PYTHONPATH
           .venv/bin/python ci/native_runtime/probe_native_default_auto.py --json native-default-auto.json
+          .venv/bin/python ci/native_runtime/probe_installed_pi_output.py --json installed-pi-output.json
+          .venv/bin/python -I ci/native_runtime/probe_installed_native_extensions.py --json installed-native-extensions.json
       - name: Measure installed adapter-to-decision SLOs
         env:
           MACOSX_DEPLOYMENT_TARGET: ${{ matrix.deployment_target }}
@@ -285,6 +301,8 @@ jobs:
           path: |
             native-dist/*.whl
             native-default-auto.json
+            installed-pi-output.json
+            installed-native-extensions.json
             native-installed-slo.json
             native-artifact-evidence.json
             native-stop-diagnostic.json
@@ -305,6 +323,8 @@ jobs:
           version: "0.9.26"
           enable-cache: true
       - run: uv sync --frozen --extra dev --python 3.12
+      - name: Verify native command program is current
+        run: uv run --no-sync python scripts/build_native_command_program.py --check
       - name: Install pinned Rust toolchain
         shell: pwsh
         run: |
@@ -381,10 +401,15 @@ jobs:
           Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
           Remove-Item Env:HOL_GUARD_PYTHON_ORACLE -ErrorAction SilentlyContinue
           uv run --no-sync python ci/native_runtime/probe_native_default_auto.py --json native-default-auto.json
+          .venv\Scripts\python.exe -I ci\native_runtime\probe_installed_native_extensions.py --json installed-native-extensions.json
+          .venv\Scripts\python.exe -I ci\native_runtime\probe_installed_command_control_lock.py --json installed-command-control-lock.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
         with:
           name: hol-guard-native-wheel-windows-x64
           path: |
             native-dist/*.whl
             native-default-auto.json
+            installed-native-extensions.json
+            installed-command-control-lock.json
           if-no-files-found: error
