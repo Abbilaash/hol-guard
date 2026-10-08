@@ -499,6 +499,7 @@ def _native_review_action_envelope(
     workspace: Path | None,
     guard_home: Path | None = None,
     home_dir: Path | None,
+
     deadline: float | None = None,
 ) -> dict[str, object] | None:
     """Store the canonical redacted envelope used by live revalidation."""
