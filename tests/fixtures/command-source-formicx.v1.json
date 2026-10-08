@@ -684,6 +684,7 @@
           "command.digline",
           "command.errand",
           "command.faf-cli",
+          "command.formicx",
           "command.genclave",
           "command.gitsync",
           "command.google-workspace.gog",
